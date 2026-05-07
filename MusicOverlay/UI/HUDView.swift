@@ -111,9 +111,6 @@ public struct HUDView: View {
                     viewModel.playSelected()
                     WindowManager.shared.toggleHUD()
                 }.keyboardShortcut(.return, modifiers: [])
-                Button("") {
-                    WindowManager.shared.toggleHUD()
-                }.keyboardShortcut(.escape, modifiers: [])
             }
             .opacity(0)
         )

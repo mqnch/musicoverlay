@@ -48,11 +48,22 @@ public class WindowManager {
         
         panel.contentView = visualEffect
         
-        // Hide window when clicking outside (losing key status)
-        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { _ in
+        // Hide window when the app loses focus (clicking outside)
+        NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
             if panel.isVisible {
                 panel.orderOut(nil)
             }
+        }
+        
+        // Intercept Escape key to close the HUD reliably
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak panel] event in
+            if event.keyCode == 53 { // 53 is the Escape key
+                if panel?.isVisible == true {
+                    panel?.orderOut(nil)
+                    return nil // Consume the event
+                }
+            }
+            return event
         }
         
         self.hudPanel = panel
