@@ -33,9 +33,10 @@ public class WindowManager {
         visualEffect.layer?.cornerRadius = 16.0
         visualEffect.layer?.masksToBounds = true
         
-        // Setup placeholder SwiftUI View
-        // In Phase 6, this will be replaced with our actual HUD view
-        let hostingView = NSHostingView(rootView: Text("HUD Placeholder").foregroundColor(.white).font(.largeTitle))
+        // Setup HUD View
+        let hudView = HUDView(stateController: StateController.shared)
+            .environmentObject(StateController.shared)
+        let hostingView = NSHostingView(rootView: hudView)
         visualEffect.addSubview(hostingView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -46,6 +47,14 @@ public class WindowManager {
         ])
         
         panel.contentView = visualEffect
+        
+        // Hide window when clicking outside (losing key status)
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { _ in
+            if panel.isVisible {
+                panel.orderOut(nil)
+            }
+        }
+        
         self.hudPanel = panel
     }
     
