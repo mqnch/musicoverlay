@@ -12,6 +12,9 @@ struct MusicOverlayApp: App {
         // managed separately via the hotkey and WindowManager.
         Settings {
             EmptyView()
+                .onOpenURL { url in
+                    SpotifyAuthManager.shared.handleCallbackURL(url)
+                }
         }
     }
 }

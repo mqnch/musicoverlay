@@ -4,10 +4,25 @@
 <dict>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>MusicOverlay needs access to your Apple Music library to display and play your playlists.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>MusicOverlay requires permission to send AppleEvents to the Music app for playback controls.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.musicoverlay</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>musicoverlay</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

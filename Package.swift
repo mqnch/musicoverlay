@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "MusicOverlay",
     platforms: [
-        .macOS(.v13) // Setting a modern baseline for SwiftUI and MusicKit
+        .macOS(.v14) // MusicLibraryRequest requires macOS 14+
     ],
     targets: [
         .executableTarget(
