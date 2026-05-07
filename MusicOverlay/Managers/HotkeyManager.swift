@@ -25,7 +25,11 @@ public class HotkeyManager {
                     if timeDiff > 0.05 && timeDiff < 0.4 { // Double tap threshold
                         self.lastShiftPressTime = 0 // Reset to prevent triple-tap firing twice
                         DispatchQueue.main.async {
-                            WindowManager.shared.toggleHUD()
+                            if StateController.shared.onboardingCompleted {
+                                WindowManager.shared.toggleHUD()
+                            } else {
+                                WindowManager.shared.showOnboardingWindow()
+                            }
                         }
                     } else {
                         self.lastShiftPressTime = currentTime

@@ -10,7 +10,8 @@ let package = Package(
         .executableTarget(
             name: "MusicOverlay",
             path: "MusicOverlay",
-            exclude: ["Info.plist"] // SwiftPM doesn't use the Info.plist directly for building the executable
+            exclude: ["Info.plist"], // SwiftPM doesn't use the Info.plist directly for building the executable
+            resources: [.process("Resources")]
         )
     ]
 )

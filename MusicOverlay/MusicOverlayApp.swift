@@ -26,5 +26,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Setup Phase 5 Managers
         WindowManager.shared.setupHUD()
         HotkeyManager.shared.setup()
+        
+        if StateController.shared.onboardingCompleted {
+            StateController.shared.initializeService()
+        } else {
+            WindowManager.shared.showOnboardingWindow()
+        }
     }
 }

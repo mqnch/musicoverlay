@@ -5,6 +5,7 @@ public class WindowManager {
     public static let shared = WindowManager()
     
     private var hudPanel: NSPanel?
+    private var onboardingWindow: NSWindow?
     
     private init() {}
     
@@ -36,6 +37,7 @@ public class WindowManager {
         // Setup HUD View
         let hudView = HUDView(stateController: StateController.shared)
             .environmentObject(StateController.shared)
+            .fontDesign(.monospaced)
         let hostingView = NSHostingView(rootView: hudView)
         visualEffect.addSubview(hostingView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
@@ -99,5 +101,38 @@ public class WindowManager {
         }, completionHandler: {
             panel.orderOut(nil)
         })
+    }
+    
+    public func showOnboardingWindow() {
+        if onboardingWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 600, height: 450),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "MusicOverlay Setup"
+            window.center()
+            window.level = .floating
+            window.isReleasedWhenClosed = false
+            
+            let rootView = OnboardingView(onClose: { [weak self] in
+                self?.closeOnboardingWindow()
+            })
+            .fontDesign(.monospaced)
+            
+            let hostingView = NSHostingView(rootView: rootView)
+            window.contentView = hostingView
+            
+            self.onboardingWindow = window
+        }
+        
+        onboardingWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    public func closeOnboardingWindow() {
+        onboardingWindow?.close()
+        onboardingWindow = nil
     }
 }

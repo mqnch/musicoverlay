@@ -1,0 +1,189 @@
+import SwiftUI
+import MusicKit
+
+public struct OnboardingView: View {
+    @StateObject private var authManager = SpotifyAuthManager.shared
+    @State private var clientIDInput: String = ""
+    @State private var selectedService: String? = nil
+    @State private var isAppleMusicAuthorized: Bool = false
+    
+    // Injected to close the window
+    public var onClose: (() -> Void)?
+    
+    public init(onClose: (() -> Void)? = nil) {
+        self.onClose = onClose
+    }
+    
+    public var body: some View {
+        VStack(spacing: 20) {
+            Text("Welcome to MusicOverlay")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+            
+            Text("Choose your music service to get started.")
+                .font(.title3)
+                .foregroundColor(.secondary)
+            
+            HStack(spacing: 40) {
+                // Apple Music Button
+                Button(action: {
+                    selectedService = "appleMusic"
+                }) {
+                    VStack {
+                        if let url = Bundle.module.url(forResource: "apple_music_icon", withExtension: "svg"),
+                           let nsImage = NSImage(contentsOf: url) {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .interpolation(.high)
+                                .antialiased(true)
+                                .aspectRatio(contentMode: .fit)
+                                .frame(height: 60)
+                        } else {
+                            Image(systemName: "applelogo")
+                                .font(.system(size: 60))
+                        }
+                        Text("Apple Music")
+                            .font(.headline)
+                            .padding(.top, 5)
+                    }
+                    .frame(width: 150, height: 120)
+                    .background(selectedService == "appleMusic" ? Color.pink.opacity(0.2) : Color.gray.opacity(0.1))
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(selectedService == "appleMusic" ? Color.pink : Color.clear, lineWidth: 2)
+                    )
+                }
+                .buttonStyle(.plain)
+                
+                // Spotify Button
+                Button(action: {
+                    selectedService = "spotify"
+                }) {
+                    VStack {
+                        if let url = Bundle.module.url(forResource: "spotify_icon", withExtension: "svg"),
+                           let nsImage = NSImage(contentsOf: url) {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .interpolation(.high)
+                                .antialiased(true)
+                                .aspectRatio(contentMode: .fit)
+                                .frame(height: 60)
+                        } else {
+                            Image(systemName: "music.note.list")
+                                .font(.system(size: 60))
+                        }
+                        Text("Spotify")
+                            .font(.headline)
+                            .padding(.top, 5)
+                    }
+                    .frame(width: 150, height: 120)
+                    .background(selectedService == "spotify" ? Color.green.opacity(0.2) : Color.gray.opacity(0.1))
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(selectedService == "spotify" ? Color.green : Color.clear, lineWidth: 2)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            
+            // Service-specific configuration
+            ZStack(alignment: .top) {
+                if selectedService == "appleMusic" {
+                    VStack(spacing: 15) {
+                        Text("MusicOverlay needs permission to access your Apple Music library.")
+                            .multilineTextAlignment(.center)
+                        
+                        if isAppleMusicAuthorized {
+                            Text("✅ Authorized successfully!")
+                                .foregroundColor(.green)
+                                .onAppear {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                        finishOnboarding(with: "appleMusic")
+                                    }
+                                }
+                        } else {
+                            Button("Authorize Apple Music") {
+                                Task {
+                                    let status = await MusicAuthorization.request()
+                                    if status == .authorized {
+                                        isAppleMusicAuthorized = true
+                                    }
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.pink)
+                        }
+                    }
+                    .frame(maxWidth: 350)
+                } else if selectedService == "spotify" {
+                    VStack(spacing: 6) {
+                        Text("Get an API key from the Spotify Developer Dashboard.")
+                            .font(.headline)
+                            .multilineTextAlignment(.center)
+                        
+                        Link("Open Spotify Developer Dashboard", destination: URL(string: "https://developer.spotify.com/dashboard/")!)
+                            .font(.body)
+                            .foregroundColor(.blue)
+                        
+                        HStack {
+                            Text("Redirect URI:")
+                                .font(.body)
+                            Text("musicoverlay://callback")
+                                .font(.body)
+                                .foregroundColor(.secondary)
+                            Button(action: {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString("musicoverlay://callback", forType: .string)
+                            }) {
+                                Image(systemName: "doc.on.doc")
+                            }
+                            .buttonStyle(.plain)
+                            .help("Copy Redirect URI")
+                        }
+                        
+                        TextField("Client ID", text: $clientIDInput)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .frame(width: 300)
+                            .padding(.top, 5)
+                        
+                        if authManager.hasValidToken {
+                            Text("✅ Logged in successfully!")
+                                .foregroundColor(.green)
+                                .onAppear {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                        finishOnboarding(with: "spotify")
+                                    }
+                                }
+                        } else {
+                            Button("Login to Spotify") {
+                                authManager.setClientID(clientIDInput)
+                                authManager.startAuthFlow()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                            .disabled(clientIDInput.isEmpty)
+                        }
+                    }
+                    .frame(maxWidth: 420)
+                    .onAppear {
+                        if let savedID = authManager.getClientID() {
+                            clientIDInput = savedID
+                        }
+                    }
+                }
+            }
+            .frame(height: 160)
+        }
+        .padding(30)
+        .frame(width: 600, height: 450)
+    }
+    
+    private func finishOnboarding(with service: String) {
+        StateController.shared.preferredService = service
+        StateController.shared.onboardingCompleted = true
+        StateController.shared.initializeService()
+        onClose?()
+    }
+}
