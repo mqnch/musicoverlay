@@ -4,14 +4,48 @@ public class SpotifyManager: MediaServiceProtocol {
     
     public init() {}
     
-    // MARK: - AppleScript Execution Helper
+    // MARK: - API Cache
+    private var cachedPlaylists: [Playlist] = []
+    private var cacheExpiration: Date = Date.distantPast
     
-    private func executeAppleScript(_ scriptSource: String) -> String? {
+    // MARK: - Precompiled AppleScripts
+    
+    private let playScript = NSAppleScript(source: "tell application \"Spotify\" to play")
+    private let pauseScript = NSAppleScript(source: "tell application \"Spotify\" to pause")
+    private let nextScript = NSAppleScript(source: "tell application \"Spotify\" to next track")
+    private let prevScript = NSAppleScript(source: "tell application \"Spotify\" to previous track")
+    
+    private let currentTrackScript = NSAppleScript(source: """
+    tell application "Spotify"
+        if player state is playing then
+            set tName to name of current track
+            set tArtist to artist of current track
+            set tAlbum to album of current track
+            set tDuration to duration of current track
+            -- Spotify reports duration in milliseconds, convert to seconds here or in Swift
+            return tName & "|||" & tArtist & "|||" & tAlbum & "|||" & (tDuration / 1000.0)
+        end if
+        return ""
+    end tell
+    """)
+    
+    private func executeCompiledScript(_ script: NSAppleScript?) -> String? {
+        var error: NSDictionary?
+        let output = script?.executeAndReturnError(&error)
+        if let error = error {
+            print("Spotify AppleScript Error: \\(error)")
+            return nil
+        }
+        return output?.stringValue
+    }
+    
+    // Used for dynamic scripts like playPlaylist
+    private func executeDynamicAppleScript(_ scriptSource: String) -> String? {
         var error: NSDictionary?
         if let script = NSAppleScript(source: scriptSource) {
             let output = script.executeAndReturnError(&error)
             if let error = error {
-                print("Spotify AppleScript Error: \(error)")
+                print("Spotify AppleScript Error: \\(error)")
                 return nil
             }
             return output.stringValue
@@ -22,37 +56,23 @@ public class SpotifyManager: MediaServiceProtocol {
     // MARK: - MediaServiceProtocol Implementation
     
     public func play() {
-        _ = executeAppleScript("tell application \"Spotify\" to play")
+        _ = executeCompiledScript(playScript)
     }
     
     public func pause() {
-        _ = executeAppleScript("tell application \"Spotify\" to pause")
+        _ = executeCompiledScript(pauseScript)
     }
     
     public func next() {
-        _ = executeAppleScript("tell application \"Spotify\" to next track")
+        _ = executeCompiledScript(nextScript)
     }
     
     public func previous() {
-        _ = executeAppleScript("tell application \"Spotify\" to previous track")
+        _ = executeCompiledScript(prevScript)
     }
     
     public func getCurrentTrack() -> TrackInfo? {
-        let script = """
-        tell application "Spotify"
-            if player state is playing then
-                set tName to name of current track
-                set tArtist to artist of current track
-                set tAlbum to album of current track
-                set tDuration to duration of current track
-                -- Spotify reports duration in milliseconds, convert to seconds here or in Swift
-                return tName & "|||" & tArtist & "|||" & tAlbum & "|||" & (tDuration / 1000.0)
-            end if
-            return ""
-        end tell
-        """
-        
-        guard let result = executeAppleScript(script), !result.isEmpty else {
+        guard let result = executeCompiledScript(currentTrackScript), !result.isEmpty else {
             return nil
         }
         
@@ -73,6 +93,10 @@ public class SpotifyManager: MediaServiceProtocol {
     }
     
     public func fetchPlaylists() async throws -> [Playlist] {
+        if Date() < cacheExpiration && !cachedPlaylists.isEmpty {
+            return cachedPlaylists
+        }
+        
         guard let tokenData = KeychainHelper.shared.read(service: "Spotify", account: "AccessToken"),
               let token = String(data: tokenData, encoding: .utf8) else {
             return []
@@ -93,7 +117,7 @@ public class SpotifyManager: MediaServiceProtocol {
             return []
         }
         
-        return items.compactMap { item in
+        let playlists = items.compactMap { item -> Playlist? in
             guard let id = item["id"] as? String,
                   let name = item["name"] as? String,
                   let uri = item["uri"] as? String else {
@@ -101,9 +125,14 @@ public class SpotifyManager: MediaServiceProtocol {
             }
             return Playlist(id: id, name: name, uri: uri)
         }
+        
+        self.cachedPlaylists = playlists
+        self.cacheExpiration = Date().addingTimeInterval(300) // 5 minutes
+        
+        return playlists
     }
     
     public func playPlaylist(uri: String) {
-        _ = executeAppleScript("tell application \"Spotify\" to play track \"\(uri)\"")
+        _ = executeDynamicAppleScript("tell application \"Spotify\" to play track \"\(uri)\"")
     }
 }

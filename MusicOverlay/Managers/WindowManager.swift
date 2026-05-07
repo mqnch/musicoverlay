@@ -50,16 +50,14 @@ public class WindowManager {
         
         // Hide window when the app loses focus (clicking outside)
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
-            if panel.isVisible {
-                panel.orderOut(nil)
-            }
+            WindowManager.shared.hideHUD()
         }
         
         // Intercept Escape key to close the HUD reliably
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak panel] event in
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 { // 53 is the Escape key
-                if panel?.isVisible == true {
-                    panel?.orderOut(nil)
+                if WindowManager.shared.hudPanel?.isVisible == true {
+                    WindowManager.shared.hideHUD()
                     return nil // Consume the event
                 }
             }
@@ -73,11 +71,33 @@ public class WindowManager {
         guard let panel = hudPanel else { return }
         
         if panel.isVisible {
-            panel.orderOut(nil)
+            hideHUD()
         } else {
-            panel.makeKeyAndOrderFront(nil)
-            // Ensures the window can receive keyboard events immediately
-            NSApp.activate(ignoringOtherApps: true)
+            showHUD()
         }
+    }
+    
+    public func showHUD() {
+        guard let panel = hudPanel else { return }
+        
+        panel.alphaValue = 0.0
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            panel.animator().alphaValue = 1.0
+        }
+    }
+    
+    public func hideHUD() {
+        guard let panel = hudPanel, panel.isVisible else { return }
+        
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.15
+            panel.animator().alphaValue = 0.0
+        }, completionHandler: {
+            panel.orderOut(nil)
+        })
     }
 }

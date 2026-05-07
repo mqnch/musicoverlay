@@ -5,55 +5,56 @@ public class AppleMusicManager: MediaServiceProtocol {
     
     public init() {}
     
-    // MARK: - AppleScript Execution Helper
+    // MARK: - Precompiled AppleScripts
     
-    private func executeAppleScript(_ scriptSource: String) -> String? {
+    private let playScript = NSAppleScript(source: "tell application \"Music\" to play")
+    private let pauseScript = NSAppleScript(source: "tell application \"Music\" to pause")
+    private let nextScript = NSAppleScript(source: "tell application \"Music\" to next track")
+    private let prevScript = NSAppleScript(source: "tell application \"Music\" to previous track")
+    
+    private let currentTrackScript = NSAppleScript(source: """
+    tell application "Music"
+        if player state is playing then
+            set tName to name of current track
+            set tArtist to artist of current track
+            set tAlbum to album of current track
+            set tDuration to duration of current track
+            return tName & "|||" & tArtist & "|||" & tAlbum & "|||" & tDuration
+        end if
+        return ""
+    end tell
+    """)
+    
+    private func executeCompiledScript(_ script: NSAppleScript?) -> String? {
         var error: NSDictionary?
-        if let script = NSAppleScript(source: scriptSource) {
-            let output = script.executeAndReturnError(&error)
-            if let error = error {
-                print("AppleScript Error: \(error)")
-                return nil
-            }
-            return output.stringValue
+        let output = script?.executeAndReturnError(&error)
+        if let error = error {
+            print("AppleScript Error: \\(error)")
+            return nil
         }
-        return nil
+        return output?.stringValue
     }
     
     // MARK: - MediaServiceProtocol Implementation
     
     public func play() {
-        _ = executeAppleScript("tell application \"Music\" to play")
+        _ = executeCompiledScript(playScript)
     }
     
     public func pause() {
-        _ = executeAppleScript("tell application \"Music\" to pause")
+        _ = executeCompiledScript(pauseScript)
     }
     
     public func next() {
-        _ = executeAppleScript("tell application \"Music\" to next track")
+        _ = executeCompiledScript(nextScript)
     }
     
     public func previous() {
-        _ = executeAppleScript("tell application \"Music\" to previous track")
+        _ = executeCompiledScript(prevScript)
     }
     
     public func getCurrentTrack() -> TrackInfo? {
-        // Fetch track info instantly using AppleScript
-        let script = """
-        tell application "Music"
-            if player state is playing then
-                set tName to name of current track
-                set tArtist to artist of current track
-                set tAlbum to album of current track
-                set tDuration to duration of current track
-                return tName & "|||" & tArtist & "|||" & tAlbum & "|||" & tDuration
-            end if
-            return ""
-        end tell
-        """
-        
-        guard let result = executeAppleScript(script), !result.isEmpty else {
+        guard let result = executeCompiledScript(currentTrackScript), !result.isEmpty else {
             return nil
         }
         
