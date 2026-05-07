@@ -21,8 +21,10 @@ struct MusicOverlayApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Foundation logic for accessory mode goes here
-        // Set activation policy explicitly just to be safe
         NSApp.setActivationPolicy(.accessory)
+        
+        // Setup Phase 5 Managers
+        WindowManager.shared.setupHUD()
+        HotkeyManager.shared.setup()
     }
 }
