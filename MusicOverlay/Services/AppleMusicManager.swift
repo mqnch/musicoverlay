@@ -98,12 +98,32 @@ public class AppleMusicManager: MediaServiceProtocol {
     }
     
     public func playPlaylist(uri: String) {
-        // If we only have the ID, we might need a workaround for AppleScript,
-        // but for now, if the URI is the name, we can do:
-        // executeAppleScript("tell application \"Music\" to play user playlist \"\(uri)\"")
-        // Since we stored the ID in the URI above, a full implementation would map ID -> Name 
-        // or just rely on MusicKit's ApplicationMusicPlayer (macOS 12+).
-        
-        print("Play playlist requested for ID: \\(uri)")
+        print("AppleMusic playPlaylist requested for ID: \(uri)")
+    }
+
+    public func playTrack(uri: String) {
+        print("AppleMusic playTrack requested for URI: \(uri)")
+    }
+
+    public func search(query: String) async throws -> [SearchResult] {
+        // Apple Music search not yet implemented — return empty
+        return []
+    }
+
+    public func fetchPlaylistTracks(playlistID: String) async throws -> [SpotifyTrack] {
+        // Apple Music playlist tracks not yet implemented
+        return []
+    }
+
+    public func setShuffle(_ on: Bool) {
+        let value = on ? "true" : "false"
+        var error: NSDictionary?
+        NSAppleScript(source: "tell application \"Music\" to set shuffle enabled to \(value)")?.executeAndReturnError(&error)
+    }
+
+    public func setRepeat(_ mode: RepeatMode) {
+        let value = mode.isActive ? "1" : "0"
+        var error: NSDictionary?
+        NSAppleScript(source: "tell application \"Music\" to set song repeat to \(value)")?.executeAndReturnError(&error)
     }
 }

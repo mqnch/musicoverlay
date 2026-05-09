@@ -12,9 +12,6 @@ struct MusicOverlayApp: App {
         // managed separately via the hotkey and WindowManager.
         Settings {
             EmptyView()
-                .onOpenURL { url in
-                    SpotifyAuthManager.shared.handleCallbackURL(url)
-                }
         }
     }
 }
@@ -22,6 +19,9 @@ struct MusicOverlayApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        
+        // Register for custom URL scheme events
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleGetURLEvent(event:withReplyEvent:)), forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         
         // Setup Phase 5 Managers
         WindowManager.shared.setupHUD()
@@ -31,6 +31,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             StateController.shared.initializeService()
         } else {
             WindowManager.shared.showOnboardingWindow()
+        }
+    }
+    
+    @objc func handleGetURLEvent(event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {
+        if let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+           let url = URL(string: urlString) {
+            SpotifyAuthManager.shared.handleCallbackURL(url)
         }
     }
 }

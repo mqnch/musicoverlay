@@ -2,7 +2,7 @@ import SwiftUI
 import MusicKit
 
 public struct OnboardingView: View {
-    @StateObject private var authManager = SpotifyAuthManager.shared
+    @ObservedObject private var authManager = SpotifyAuthManager.shared
     @State private var clientIDInput: String = ""
     @State private var selectedService: String? = nil
     @State private var isAppleMusicAuthorized: Bool = false
@@ -130,12 +130,12 @@ public struct OnboardingView: View {
                         HStack {
                             Text("Redirect URI:")
                                 .font(.body)
-                            Text("musicoverlay://callback")
+                            Text("http://127.0.0.1:8082/callback")
                                 .font(.body)
                                 .foregroundColor(.secondary)
                             Button(action: {
                                 NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString("musicoverlay://callback", forType: .string)
+                                NSPasteboard.general.setString("http://127.0.0.1:8082/callback", forType: .string)
                             }) {
                                 Image(systemName: "doc.on.doc")
                             }
@@ -151,11 +151,6 @@ public struct OnboardingView: View {
                         if authManager.hasValidToken {
                             Text("✅ Logged in successfully!")
                                 .foregroundColor(.green)
-                                .onAppear {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                        finishOnboarding(with: "spotify")
-                                    }
-                                }
                         } else {
                             Button("Login to Spotify") {
                                 authManager.setClientID(clientIDInput)
@@ -164,12 +159,30 @@ public struct OnboardingView: View {
                             .buttonStyle(.borderedProminent)
                             .tint(.green)
                             .disabled(clientIDInput.isEmpty)
+                            
+                            if let error = authManager.errorMessage {
+                                Text(error)
+                                    .foregroundColor(.red)
+                                    .font(.caption)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.top, 5)
+                            }
                         }
                     }
                     .frame(maxWidth: 420)
                     .onAppear {
                         if let savedID = authManager.getClientID() {
                             clientIDInput = savedID
+                        }
+                    }
+                    // onChange is guaranteed to fire when the @Published value changes,
+                    // unlike onAppear which only fires when a view enters the hierarchy.
+                    .onChange(of: authManager.hasValidToken) { newValue in
+                        if newValue {
+                            print("[OnboardingView] hasValidToken became true — finishing onboarding in 1s")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                finishOnboarding(with: "spotify")
+                            }
                         }
                     }
                 }

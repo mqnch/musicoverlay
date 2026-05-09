@@ -1,116 +1,478 @@
 import SwiftUI
 
+// MARK: - Async Image helper (no external dependency)
+
+private struct RemoteImage: View {
+    let url: URL?
+    let size: CGFloat
+    let cornerRadius: CGFloat
+
+    @State private var image: NSImage? = nil
+
+    var body: some View {
+        Group {
+            if let img = image {
+                Image(nsImage: img)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Rectangle()
+                    .fill(Color.white.opacity(0.08))
+                    .overlay(Image(systemName: "music.note")
+                        .foregroundColor(.white.opacity(0.3))
+                        .font(.system(size: size * 0.35)))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .task(id: url) { await load() }
+    }
+
+    private func load() async {
+        guard let url else { return }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let loaded = NSImage(data: data) else { return }
+        image = loaded
+    }
+}
+
+// MARK: - Playback Controls
+
+private struct PlaybackControlsView: View {
+    @ObservedObject var viewModel: HUDViewModel
+
+    var body: some View {
+        HStack(spacing: 18) {
+            // Shuffle
+            Button(action: { viewModel.toggleShuffle() }) {
+                Image(systemName: "shuffle")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(viewModel.isShuffled ? Color(red: 0.18, green: 0.8, blue: 0.44) : .white.opacity(0.55))
+            }
+            .buttonStyle(.plain)
+            .help("Shuffle")
+
+            // Previous
+            Button(action: { viewModel.previousTrack() }) {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.white.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+            .help("Previous")
+
+            // Play / Pause
+            Button(action: { viewModel.togglePlayPause() }) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.12))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.white)
+                        .offset(x: viewModel.isPlaying ? 0 : 1) // optical centering for play icon
+                }
+            }
+            .buttonStyle(.plain)
+            .help(viewModel.isPlaying ? "Pause" : "Play")
+
+            // Next
+            Button(action: { viewModel.nextTrack() }) {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.white.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+            .help("Next")
+
+            // Repeat
+            Button(action: { viewModel.cycleRepeat() }) {
+                Image(systemName: viewModel.repeatMode.systemImage)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(viewModel.repeatMode.isActive
+                                     ? Color(red: 0.18, green: 0.8, blue: 0.44)
+                                     : .white.opacity(0.55))
+            }
+            .buttonStyle(.plain)
+            .help("Repeat")
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Now Playing Panel (left)
+
+private struct NowPlayingPanel: View {
+    let track: TrackInfo?
+    @ObservedObject var viewModel: HUDViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Now Playing")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.white.opacity(0.4))
+                .textCase(.uppercase)
+                .tracking(1)
+
+            if let track = track {
+                // Album art placeholder
+                RemoteImage(url: track.albumArtURL, size: 160, cornerRadius: 10)
+                    .shadow(color: .black.opacity(0.4), radius: 10, x: 0, y: 4)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(track.title)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    Text(track.artist)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.55))
+                        .lineLimit(1)
+                }
+            } else {
+                RemoteImage(url: nil, size: 160, cornerRadius: 10)
+                Text("Nothing playing")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.35))
+            }
+
+            Spacer()
+
+            PlaybackControlsView(viewModel: viewModel)
+        }
+        .frame(width: 180)
+    }
+}
+
+// MARK: - Search Result Row
+
+private struct SearchResultRow: View {
+    let result: SearchResult
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            switch result {
+            case .track(let track):
+                Image(systemName: "music.note")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
+                    .frame(width: 32, height: 32)
+                    .background(Color.white.opacity(0.07))
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(track.title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    Text(track.artist)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Text(track.durationString)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.3))
+
+            case .playlist(let playlist):
+                RemoteImage(url: playlist.imageURL, size: 32, cornerRadius: 5)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(playlist.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    if let count = playlist.trackCount {
+                        Text("\(count) tracks")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.25))
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
+        )
+    }
+}
+
+// MARK: - Playlist Track Row
+
+private struct PlaylistTrackRow: View {
+    let track: SpotifyTrack
+    let index: Int
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("\(index + 1)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.white.opacity(0.25))
+                .frame(width: 18, alignment: .trailing)
+
+            RemoteImage(url: track.albumArtURL, size: 32, cornerRadius: 4)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(track.artist)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.5))
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Text(track.durationString)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.white.opacity(0.3))
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(Color.clear)
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Right Panel (search / playlist detail)
+
+private struct RightPanel: View {
+    @ObservedObject var viewModel: HUDViewModel
+
+    var body: some View {
+        ZStack {
+            // Search / browse results
+            searchResultsView
+                .opacity(viewModel.selectedPlaylist == nil ? 1 : 0)
+                .offset(x: viewModel.selectedPlaylist == nil ? 0 : -30)
+
+            // Playlist detail
+            if viewModel.selectedPlaylist != nil {
+                playlistDetailView
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .move(edge: .trailing).combined(with: .opacity)
+                    ))
+            }
+        }
+        .animation(.easeInOut(duration: 0.28), value: viewModel.selectedPlaylist?.id)
+    }
+
+    // MARK: Search results
+
+    @ViewBuilder
+    private var searchResultsView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    if viewModel.isSearching {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .padding(.vertical, 8)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 10)
+                    } else if viewModel.displayedResults.isEmpty {
+                        Text(viewModel.searchText.isEmpty ? "Your playlists will appear here" : "No results")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.3))
+                            .padding(.top, 20)
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        ForEach(Array(viewModel.displayedResults.enumerated()), id: \.element.id) { index, result in
+                            SearchResultRow(result: result, isSelected: index == viewModel.selectionIndex)
+                                .id(index)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    withAnimation(.easeInOut(duration: 0.28)) {
+                                        viewModel.playResult(result)
+                                    }
+                                }
+                        }
+                    }
+                }
+                .padding(.trailing, 4)
+            }
+            .onChange(of: viewModel.selectionIndex) { _, newIndex in
+                withAnimation { proxy.scrollTo(newIndex, anchor: .center) }
+            }
+        }
+    }
+
+    // MARK: Playlist detail
+
+    @ViewBuilder
+    private var playlistDetailView: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 8) {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.28)) {
+                        viewModel.closePlaylist()
+                    }
+                }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+
+                if let playlist = viewModel.selectedPlaylist {
+                    RemoteImage(url: playlist.imageURL, size: 22, cornerRadius: 3)
+                    Text(playlist.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
+
+            Divider()
+                .background(Color.white.opacity(0.08))
+                .padding(.bottom, 4)
+
+            if viewModel.isLoadingTracks {
+                Spacer()
+                ProgressView()
+                    .scaleEffect(0.8)
+                Spacer()
+            } else if viewModel.playlistTracks.isEmpty {
+                Spacer()
+                Text("No tracks found")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.3))
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(Array(viewModel.playlistTracks.enumerated()), id: \.element.id) { index, track in
+                            PlaylistTrackRow(track: track, index: index)
+                                .onTapGesture {
+                                    viewModel.playTrack(track)
+                                    WindowManager.shared.toggleHUD()
+                                }
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color.white.opacity(0.0))
+                                )
+                                .contentShape(Rectangle())
+                        }
+                    }
+                    .padding(.trailing, 4)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - HUDView
+
 public struct HUDView: View {
     @EnvironmentObject var stateController: StateController
     @StateObject private var viewModel: HUDViewModel
     @FocusState private var isSearchFocused: Bool
-    
+
     let timer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
-    
+
     public init(stateController: StateController) {
         _viewModel = StateObject(wrappedValue: HUDViewModel(stateController: stateController))
     }
-    
+
     public var body: some View {
         VStack(spacing: 0) {
-            // Pill-shaped Search Bar
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.gray)
-                TextField("Search Playlists...", text: $viewModel.searchText)
-                    .textFieldStyle(PlainTextFieldStyle())
+            // ── Search bar ────────────────────────────────────────────────
+            HStack(spacing: 10) {
+                if viewModel.isSearching {
+                    ProgressView()
+                        .scaleEffect(0.65)
+                        .frame(width: 16)
+                } else {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+
+                TextField("Search songs & playlists…", text: $viewModel.searchText)
+                    .textFieldStyle(.plain)
                     .focused($isSearchFocused)
-                    .font(.system(size: 20, weight: .medium))
-            }
-            .padding()
-            .background(Color.black.opacity(0.3))
-            .cornerRadius(20)
-            .padding()
-            
-            HStack(alignment: .top, spacing: 20) {
-                // Left Panel: Current Track
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Now Playing")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-                    
-                    if let track = stateController.currentTrack {
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(width: 150, height: 150)
-                            .cornerRadius(10)
-                            .overlay(
-                                Image(systemName: "music.note")
-                                    .font(.largeTitle)
-                                    .foregroundColor(.white.opacity(0.5))
-                            )
-                        
-                        Text(track.title)
-                            .font(.title3)
-                            .fontWeight(.bold)
-                            .lineLimit(1)
-                        
-                        Text(track.artist)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    } else {
-                        Text("Nothing playing")
-                            .foregroundColor(.gray)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundColor(.white)
+
+                if !viewModel.searchText.isEmpty {
+                    Button(action: { viewModel.searchText = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.white.opacity(0.3))
+                            .font(.system(size: 14))
                     }
-                    Spacer()
-                }
-                .frame(width: 200)
-                
-                Divider()
-                
-                // Right Panel: Playlists
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 5) {
-                            ForEach(Array(viewModel.filteredPlaylists.enumerated()), id: \.element.id) { index, playlist in
-                                HStack {
-                                    Text(playlist.name)
-                                        .font(.system(size: 14))
-                                        .foregroundColor(index == viewModel.selectionIndex ? .white : .primary)
-                                    Spacer()
-                                }
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
-                                .background(index == viewModel.selectionIndex ? Color.blue.opacity(0.8) : Color.clear)
-                                .cornerRadius(8)
-                                .id(index)
-                            }
-                        }
-                        .padding(.trailing)
-                    }
-                    .onChange(of: viewModel.selectionIndex) { _, newIndex in
-                        withAnimation {
-                            proxy.scrollTo(newIndex, anchor: .center)
-                        }
-                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .padding([.horizontal, .bottom])
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.white.opacity(0.07))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+
+            // ── Main panels ───────────────────────────────────────────────
+            HStack(alignment: .top, spacing: 0) {
+                // Left: Now Playing + Controls
+                NowPlayingPanel(track: stateController.currentTrack, viewModel: viewModel)
+                    .padding(.leading, 16)
+                    .padding(.trailing, 12)
+
+                // Separator
+                Rectangle()
+                    .fill(Color.white.opacity(0.08))
+                    .frame(width: 1)
+                    .padding(.vertical, 4)
+
+                // Right: Search results / playlist detail
+                RightPanel(viewModel: viewModel)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 8)
+            }
+            .padding(.bottom, 14)
         }
-        .frame(width: 600, height: 400)
+        .frame(width: 620, height: 470)
         .background(Color.clear)
-        .onAppear {
-            isSearchFocused = true
-        }
-        .onReceive(timer) { _ in
-            if let track = stateController.activeService?.getCurrentTrack() {
-                stateController.currentTrack = track
-            }
-        }
+        .onAppear { isSearchFocused = true }
+        .onReceive(timer) { _ in viewModel.refreshNowPlaying() }
+        // ── Hidden keyboard shortcuts ──────────────────────────────────
         .background(
             Group {
-                Button("") { viewModel.moveSelectionUp() }.keyboardShortcut(.upArrow, modifiers: [])
+                Button("") { viewModel.moveSelectionUp()   }.keyboardShortcut(.upArrow,   modifiers: [])
                 Button("") { viewModel.moveSelectionDown() }.keyboardShortcut(.downArrow, modifiers: [])
-                Button("") { 
-                    viewModel.playSelected()
-                    WindowManager.shared.toggleHUD()
+                Button("") {
+                    if viewModel.selectedPlaylist != nil {
+                        withAnimation(.easeInOut(duration: 0.28)) { viewModel.closePlaylist() }
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.28)) { viewModel.activateSelection() }
+                    }
                 }.keyboardShortcut(.return, modifiers: [])
+                Button("") {
+                    if viewModel.selectedPlaylist != nil {
+                        withAnimation(.easeInOut(duration: 0.28)) { viewModel.closePlaylist() }
+                    }
+                }.keyboardShortcut(.escape, modifiers: [])
             }
             .opacity(0)
         )

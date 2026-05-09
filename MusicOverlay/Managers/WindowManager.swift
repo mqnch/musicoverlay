@@ -83,7 +83,9 @@ public class WindowManager {
         guard let panel = hudPanel else { return }
         
         panel.alphaValue = 0.0
-        panel.makeKeyAndOrderFront(nil)
+        // nonactivatingPanel cannot become key — use orderFront instead of
+        // makeKeyAndOrderFront to avoid the "canBecomeKeyWindow" warning.
+        panel.orderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         
         NSAnimationContext.runAnimationGroup { context in
@@ -118,6 +120,7 @@ public class WindowManager {
             
             let rootView = OnboardingView(onClose: { [weak self] in
                 self?.closeOnboardingWindow()
+                self?.showHUD()
             })
             .fontDesign(.monospaced)
             

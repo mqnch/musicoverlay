@@ -4,10 +4,14 @@ public struct Playlist: Identifiable, Equatable {
     public let id: String
     public let name: String
     public let uri: String
-    
-    public init(id: String, name: String, uri: String) {
+    public let imageURL: URL?
+    public let trackCount: Int?
+
+    public init(id: String, name: String, uri: String, imageURL: URL? = nil, trackCount: Int? = nil) {
         self.id = id
         self.name = name
         self.uri = uri
+        self.imageURL = imageURL
+        self.trackCount = trackCount
     }
 }
