@@ -162,13 +162,6 @@ private struct NowPlayingPanel: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: 8) {
-            Text("Now Playing")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.white.opacity(0.4))
-                .textCase(.uppercase)
-                .tracking(1)
-                .frame(maxWidth: .infinity, alignment: .center)
-
             if let track = track {
                 RemoteImage(url: track.albumArtURL, size: 170, cornerRadius: 12)
                     .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 5)
@@ -470,9 +463,19 @@ public struct HUDView: View {
             }
             .padding(.bottom, 14)
         }
-        .frame(width: 620, height: 500)
+        .frame(width: 620, height: 420)
         .background(Color.clear)
-        .onAppear { isSearchFocused = true }
+        .onAppear {
+            isSearchFocused = true
+            // Register this view's model with the keyboard monitor
+            WindowManager.shared.activeViewModel = viewModel
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .hudDidShow)) { _ in
+            // Re-focus search field once the panel is truly key
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                isSearchFocused = true
+            }
+        }
         .onReceive(timer) { _ in viewModel.refreshNowPlaying() }
         .background(
             Group {

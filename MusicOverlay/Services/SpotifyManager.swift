@@ -16,8 +16,8 @@ public class SpotifyManager: MediaServiceProtocol {
     private let nextScript  = NSAppleScript(source: "tell application \"Spotify\" to next track")
     private let prevScript  = NSAppleScript(source: "tell application \"Spotify\" to previous track")
 
-    /// Returns 7 pipe-delimited fields:
-    /// title ||| artist ||| album ||| durationSec ||| artworkURL ||| playerPosition ||| soundVolume
+    /// Returns 8 pipe-delimited fields:
+    /// title ||| artist ||| album ||| durationSec ||| artworkURL ||| playerPosition ||| soundVolume ||| playerState
     private let currentTrackScript = NSAppleScript(source: """
     tell application "Spotify"
         if player state is playing or player state is paused then
@@ -28,7 +28,12 @@ public class SpotifyManager: MediaServiceProtocol {
             set tArt to artwork url of current track
             set tPos to player position
             set tVol to sound volume
-            return tName & "|||" & tArtist & "|||" & tAlbum & "|||" & (tDuration / 1000.0) & "|||" & tArt & "|||" & tPos & "|||" & tVol
+            if player state is playing then
+                set tState to "playing"
+            else
+                set tState to "paused"
+            end if
+            return tName & "|||" & tArtist & "|||" & tAlbum & "|||" & (tDuration / 1000.0) & "|||" & tArt & "|||" & tPos & "|||" & tVol & "|||" & tState
         end if
         return ""
     end tell
@@ -96,7 +101,7 @@ public class SpotifyManager: MediaServiceProtocol {
     public func getCurrentTrack() -> TrackInfo? {
         guard let result = executeCompiledScript(currentTrackScript), !result.isEmpty else { return nil }
         let parts = result.components(separatedBy: "|||")
-        guard parts.count == 7 else {
+        guard parts.count == 8 else {
             print("[SpotifyManager] getCurrentTrack: unexpected field count \(parts.count): \(result)")
             return nil
         }
@@ -105,6 +110,7 @@ public class SpotifyManager: MediaServiceProtocol {
         let artURL    = artURLStr.isEmpty ? nil : URL(string: artURLStr)
         let position  = TimeInterval(parts[5].trimmingCharacters(in: .whitespaces)) ?? 0
         let volume    = Double(parts[6].trimmingCharacters(in: .whitespaces)) ?? 50
+        let isPlaying = parts[7].trimmingCharacters(in: .whitespaces) == "playing"
 
         return TrackInfo(
             id: "\(parts[0])-\(parts[1])",   // stable ID so RemoteImage caches correctly
@@ -114,7 +120,8 @@ public class SpotifyManager: MediaServiceProtocol {
             duration: duration,
             albumArtURL: artURL,
             position: position,
-            volume: volume
+            volume: volume,
+            isPlaying: isPlaying
         )
     }
 
@@ -147,16 +154,19 @@ public class SpotifyManager: MediaServiceProtocol {
         case .track:   state = "track"
         }
 
-        guard let url = URL(string: "https://api.spotify.com/v1/me/player/repeat?state=\(state)"),
-              let request = authorizedRequest(url: url, method: "PUT") else { return }
+        Task {
+            await SpotifyAuthManager.shared.refreshTokenIfNeeded()
+            guard let url = URL(string: "https://api.spotify.com/v1/me/player/repeat?state=\(state)"),
+                  let request = authorizedRequest(url: url, method: "PUT") else { return }
 
-        URLSession.shared.dataTask(with: request) { _, response, error in
-            if let error = error {
-                print("[SpotifyManager] setRepeat API error: \(error)")
-            } else if let http = response as? HTTPURLResponse {
-                print("[SpotifyManager] setRepeat API status: \(http.statusCode)")
-            }
-        }.resume()
+            URLSession.shared.dataTask(with: request) { _, response, error in
+                if let error = error {
+                    print("[SpotifyManager] setRepeat API error: \(error)")
+                } else if let http = response as? HTTPURLResponse {
+                    print("[SpotifyManager] setRepeat API status: \(http.statusCode)")
+                }
+            }.resume()
+        }
     }
 
     // MARK: - MediaServiceProtocol — Volume & seeking
@@ -176,6 +186,8 @@ public class SpotifyManager: MediaServiceProtocol {
         if Date() < cacheExpiration && !cachedPlaylists.isEmpty {
             return cachedPlaylists
         }
+
+        await SpotifyAuthManager.shared.refreshTokenIfNeeded()
 
         guard let url = URL(string: "https://api.spotify.com/v1/me/playlists?limit=50"),
               let request = authorizedRequest(url: url) else { return [] }
@@ -222,6 +234,8 @@ public class SpotifyManager: MediaServiceProtocol {
             URLQueryItem(name: "type",  value: "track,playlist"),
             URLQueryItem(name: "limit", value: "8")
         ]
+
+        await SpotifyAuthManager.shared.refreshTokenIfNeeded()
 
         guard let url = components.url,
               let request = authorizedRequest(url: url) else { return [] }
@@ -293,6 +307,9 @@ public class SpotifyManager: MediaServiceProtocol {
     // MARK: - MediaServiceProtocol — Playlist tracks
 
     public func fetchPlaylistTracks(playlistID: String) async throws -> [SpotifyTrack] {
+        // Refresh token if expired before making any API calls
+        await SpotifyAuthManager.shared.refreshTokenIfNeeded()
+
         var allTracks: [SpotifyTrack] = []
         var nextURL: URL? = URL(string: "https://api.spotify.com/v1/playlists/\(playlistID)/tracks?limit=50")
 

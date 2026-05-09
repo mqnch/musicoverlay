@@ -166,6 +166,58 @@ public class SpotifyAuthManager: ObservableObject {
             print("[SpotifyAuthManager] No token in keychain → hasValidToken=false")
         }
     }
+
+    /// Silently refreshes the access token using the stored refresh token if it's
+    /// expired or will expire within the next 60 seconds.
+    public func refreshTokenIfNeeded() async {
+        let expiryKey = "SpotifyTokenExpiry"
+        let expiry = UserDefaults.standard.double(forKey: expiryKey)
+        let now = Date().timeIntervalSince1970
+
+        // Still valid with > 60s headroom
+        if expiry > 0 && (expiry - now) > 60 { return }
+
+        guard let refreshData = KeychainHelper.shared.read(service: "Spotify", account: "RefreshToken"),
+              let refreshToken = String(data: refreshData, encoding: .utf8),
+              let clientID = getClientID() else {
+            print("[SpotifyAuthManager] refreshTokenIfNeeded: no refresh token or clientID, skipping")
+            return
+        }
+
+        var request = URLRequest(url: tokenEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let body = [
+            "grant_type=refresh_token",
+            "refresh_token=\(refreshToken)",
+            "client_id=\(clientID)"
+        ].joined(separator: "&")
+        request.httpBody = body.data(using: .utf8)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return }
+            print("[SpotifyAuthManager] refreshTokenIfNeeded: HTTP \(http.statusCode)")
+            guard http.statusCode == 200,
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let newToken = json["access_token"] as? String else {
+                print("[SpotifyAuthManager] refreshTokenIfNeeded: failed — \(String(data: data, encoding: .utf8)?.prefix(200) ?? "")")
+                return
+            }
+            KeychainHelper.shared.save(newToken.data(using: .utf8)!, service: "Spotify", account: "AccessToken")
+            if let newRefresh = json["refresh_token"] as? String {
+                KeychainHelper.shared.save(newRefresh.data(using: .utf8)!, service: "Spotify", account: "RefreshToken")
+            }
+            let expiresIn = json["expires_in"] as? Double ?? 3600
+            UserDefaults.standard.set(now + expiresIn, forKey: expiryKey)
+            DispatchQueue.main.async { self.hasValidToken = true }
+            print("[SpotifyAuthManager] refreshTokenIfNeeded: ✅ token refreshed, expires in \(Int(expiresIn))s")
+        } catch {
+            print("[SpotifyAuthManager] refreshTokenIfNeeded: network error — \(error)")
+        }
+    }
+
     
     // Generates a random string for PKCE
     private func generateRandomString(length: Int) -> String {

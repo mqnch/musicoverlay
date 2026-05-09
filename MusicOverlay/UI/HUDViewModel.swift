@@ -41,6 +41,10 @@ public class HUDViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var searchTask: Task<Void, Never>? = nil
     private var cachedPlaylists: [Playlist] = []
+    /// Timestamp of the last user-initiated play/pause toggle.
+    /// We skip overwriting isPlaying from the timer for ~1.2s after a toggle
+    /// so the optimistic UI state isn't immediately clobbered.
+    private var lastToggleTime: Date = .distantPast
 
     public init(stateController: StateController) {
         self.stateController = stateController
@@ -151,6 +155,7 @@ public class HUDViewModel: ObservableObject {
             stateController.activeService?.play()
         }
         isPlaying.toggle()
+        lastToggleTime = Date()
     }
 
     public func nextTrack() {
@@ -179,6 +184,12 @@ public class HUDViewModel: ObservableObject {
         stateController.activeService?.setVolume(volume)
     }
 
+    /// Adjusts volume by `delta` (e.g. ±5) and commits immediately.
+    public func adjustVolume(_ delta: Double) {
+        volume = max(0, min(100, volume + delta))
+        stateController.activeService?.setVolume(volume)
+    }
+
     public func commitSeek() {
         stateController.activeService?.seekTo(playbackPosition)
         isSeeking = false
@@ -203,9 +214,17 @@ public class HUDViewModel: ObservableObject {
     // MARK: - Now Playing refresh (called by 0.5s timer)
 
     public func refreshNowPlaying() {
-        guard let track = stateController.activeService?.getCurrentTrack() else { return }
+        guard let track = stateController.activeService?.getCurrentTrack() else {
+            // Nothing playing — don't force isPlaying to any state
+            return
+        }
         stateController.currentTrack = track
-        isPlaying = true
+        // Only sync isPlaying from AppleScript if we're not in the transient
+        // window right after a user toggle (avoids flicker).
+        let timeSinceToggle = Date().timeIntervalSince(lastToggleTime)
+        if timeSinceToggle > 1.2 {
+            isPlaying = track.isPlaying
+        }
         // Only update sliders if user isn't actively dragging
         if !isSeeking {
             playbackPosition = track.position

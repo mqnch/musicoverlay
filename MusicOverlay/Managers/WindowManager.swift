@@ -1,22 +1,34 @@
 import AppKit
 import SwiftUI
 
+public class HUDPanel: NSPanel {
+    public override var canBecomeKey: Bool {
+        return true
+    }
+}
+
 public class WindowManager {
     public static let shared = WindowManager()
     
     private var hudPanel: NSPanel?
     private var onboardingWindow: NSWindow?
+    private var keyboardMonitor: Any?
+
+    /// Registered by HUDView so the keyboard monitor can route commands.
+    public weak var activeViewModel: HUDViewModel?
     
     private init() {}
     
     public func setupHUD() {
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 500),
-            styleMask: [.borderless],
+        let panel = HUDPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 420),
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         
+        // Allows the panel to become the key window so text fields work
+        panel.becomesKeyOnlyIfNeeded = false
         // Ensures the window floats over fullscreen apps and joins all spaces
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -51,21 +63,72 @@ public class WindowManager {
         panel.contentView = visualEffect
         
         // Hide window when the app loses focus (clicking outside)
-        NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
             WindowManager.shared.hideHUD()
         }
         
         // Intercept Escape key to close the HUD reliably
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if event.keyCode == 53 { // 53 is the Escape key
-                if WindowManager.shared.hudPanel?.isVisible == true {
-                    WindowManager.shared.hideHUD()
-                    return nil // Consume the event
-                }
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.hudPanel?.isVisible == true else { return event }
+
+            // Escape — close HUD
+            if event.keyCode == 53 {
+                self.hideHUD()
+                return nil
             }
+
+            guard let vm = self.activeViewModel else { return event }
+            let hasModifiers = !event.modifierFlags.intersection([.command, .option, .control]).isEmpty
+
+            if !hasModifiers {
+                switch event.keyCode {
+                case 49: // Space bar — toggle play/pause
+                    DispatchQueue.main.async { vm.togglePlayPause() }
+                    return nil
+
+                case 124: // Right arrow — next track
+                    DispatchQueue.main.async { vm.nextTrack() }
+                    return nil
+
+                case 123: // Left arrow — previous track
+                    DispatchQueue.main.async { vm.previousTrack() }
+                    return nil
+
+                case 125: // Down arrow — navigate list if results visible, else volume down
+                    let hasResults = MainActor.assumeIsolated {
+                        vm.selectedPlaylist != nil || !vm.displayedResults.isEmpty
+                    }
+                    if hasResults {
+                        return event // let SwiftUI keyboard shortcuts handle list navigation
+                    } else {
+                        DispatchQueue.main.async { vm.adjustVolume(-5) }
+                        return nil
+                    }
+
+                case 126: // Up arrow — navigate list if results visible, else volume up
+                    let hasResults = MainActor.assumeIsolated {
+                        vm.selectedPlaylist != nil || !vm.displayedResults.isEmpty
+                    }
+                    if hasResults {
+                        return event // let SwiftUI keyboard shortcuts handle list navigation
+                    } else {
+                        DispatchQueue.main.async { vm.adjustVolume(5) }
+                        return nil
+                    }
+
+                default:
+                    break
+                }
+
+            }
+
             return event
         }
-        
+
         self.hudPanel = panel
     }
     
@@ -89,6 +152,10 @@ public class WindowManager {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
             panel.animator().alphaValue = 1.0
+        } completionHandler: {
+            // Fire after animation so the panel is truly key before we ask SwiftUI
+            // to focus the search field.
+            NotificationCenter.default.post(name: .hudDidShow, object: nil)
         }
     }
     
@@ -136,4 +203,8 @@ public class WindowManager {
         onboardingWindow?.close()
         onboardingWindow = nil
     }
+}
+
+extension Notification.Name {
+    static let hudDidShow = Notification.Name("HUDDidShow")
 }
