@@ -570,7 +570,8 @@ extension RightPanel {
                             .padding(.top, 20)
                             .frame(maxWidth: .infinity)
                     } else {
-                        ForEach(Array(viewModel.displayedResults.enumerated()), id: \.element.id) { index, result in
+                        ForEach(0..<viewModel.displayedResults.count, id: \.self) { index in
+                            let result = viewModel.displayedResults[index]
                             SearchResultRow(result: result, isSelected: index == viewModel.selectionIndex)
                                 .id(index)
                                 .contentShape(Rectangle())
@@ -682,7 +683,7 @@ public struct HUDView: View {
                         .foregroundColor(.white.opacity(0.4))
                 }
 
-                TextField("Search songs & playlists…", text: $viewModel.searchText)
+                TextField("Search playlists…", text: $viewModel.searchText)
                     .textFieldStyle(.plain)
                     .focused($isSearchFocused)
                     .font(.system(size: 17, weight: .medium))
@@ -731,15 +732,11 @@ public struct HUDView: View {
         .frame(width: 620, height: 420)
         .background(Color.clear)
         .onAppear {
-            isSearchFocused = true
             // Register this view's model with the keyboard monitor
             WindowManager.shared.activeViewModel = viewModel
         }
         .onReceive(NotificationCenter.default.publisher(for: .hudDidShow)) { _ in
-            // Re-focus search field once the panel is truly key
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                isSearchFocused = true
-            }
+            // No longer auto-focusing search
         }
         .onReceive(timer) { _ in viewModel.refreshNowPlaying() }
         .background(

@@ -84,17 +84,28 @@ public class AppleMusicManager: MediaServiceProtocol {
         
         // Fetch library playlists via MusicKit
         var request = MusicLibraryRequest<MusicKit.Playlist>()
-        request.limit = 50 // Optional: limit the number of playlists fetched initially
+        request.limit = 50 
         
-        let response = try await request.response()
+        var allPlaylists: [Playlist] = []
+        var response = try await request.response()
         
-        return response.items.map { mkPlaylist in
+        func mapPlaylist(_ mkPlaylist: MusicKit.Playlist) -> Playlist {
             Playlist(
                 id: mkPlaylist.id.rawValue,
                 name: mkPlaylist.name,
-                uri: mkPlaylist.id.rawValue // Storing ID in URI to use later
+                uri: mkPlaylist.id.rawValue
             )
         }
+        
+        allPlaylists.append(contentsOf: response.items.map(mapPlaylist))
+        
+        var currentItems = response.items
+        while currentItems.hasNextBatch, let nextBatch = try await currentItems.nextBatch() {
+            allPlaylists.append(contentsOf: nextBatch.map(mapPlaylist))
+            currentItems = nextBatch
+        }
+        
+        return allPlaylists
     }
     
     public func playPlaylist(uri: String) {

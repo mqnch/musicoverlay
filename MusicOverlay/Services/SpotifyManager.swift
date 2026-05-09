@@ -237,38 +237,49 @@ public class SpotifyManager: MediaServiceProtocol {
 
         await SpotifyAuthManager.shared.refreshTokenIfNeeded()
 
-        guard let url = URL(string: "https://api.spotify.com/v1/me/playlists?limit=50"),
-              let request = authorizedRequest(url: url) else { return [] }
+        var allPlaylists: [Playlist] = []
+        var nextURL: URL? = URL(string: "https://api.spotify.com/v1/me/playlists?limit=50")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-            let body = String(data: data, encoding: .utf8)?.prefix(300) ?? "(unreadable)"
-            print("[SpotifyManager] fetchPlaylists HTTP \(http.statusCode): \(body)")
-            return []
+        while let url = nextURL {
+            guard let request = authorizedRequest(url: url) else { break }
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                let body = String(data: data, encoding: .utf8)?.prefix(300) ?? "(unreadable)"
+                print("[SpotifyManager] fetchPlaylists HTTP \(http.statusCode): \(body)")
+                break
+            }
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let items = json["items"] as? [[String: Any]] else { break }
+
+            let pagePlaylists: [Playlist] = items.compactMap { item in
+                guard let id   = item["id"]   as? String,
+                      let name = item["name"] as? String,
+                      let uri  = item["uri"]  as? String else { return nil }
+
+                let imageURL: URL? = {
+                    if let images = item["images"] as? [[String: Any]],
+                       let first = images.first,
+                       let urlStr = first["url"] as? String { return URL(string: urlStr) }
+                    return nil
+                }()
+
+                let trackCount: Int? = (item["tracks"] as? [String: Any])?["total"] as? Int
+                return Playlist(id: id, name: name, uri: uri, imageURL: imageURL, trackCount: trackCount)
+            }
+            allPlaylists.append(contentsOf: pagePlaylists)
+
+            if let next = json["next"] as? String, let nextU = URL(string: next) {
+                nextURL = nextU
+            } else {
+                nextURL = nil
+            }
         }
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let items = json["items"] as? [[String: Any]] else { return [] }
-
-        let playlists: [Playlist] = items.compactMap { item in
-            guard let id   = item["id"]   as? String,
-                  let name = item["name"] as? String,
-                  let uri  = item["uri"]  as? String else { return nil }
-
-            let imageURL: URL? = {
-                if let images = item["images"] as? [[String: Any]],
-                   let first = images.first,
-                   let urlStr = first["url"] as? String { return URL(string: urlStr) }
-                return nil
-            }()
-
-            let trackCount: Int? = (item["tracks"] as? [String: Any])?["total"] as? Int
-            return Playlist(id: id, name: name, uri: uri, imageURL: imageURL, trackCount: trackCount)
-        }
-
-        cachedPlaylists = playlists
+        cachedPlaylists = allPlaylists
         cacheExpiration = Date().addingTimeInterval(300)
-        return playlists
+        return allPlaylists
     }
 
     // MARK: - MediaServiceProtocol — Search

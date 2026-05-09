@@ -42,13 +42,20 @@ public class HUDViewModel: ObservableObject {
     private var searchTask: Task<Void, Never>? = nil
     private var cachedPlaylists: [Playlist] = []
     private var playlistTracksCache: [String: [SpotifyTrack]] = [:]
+    
+    private let lastPlayedKey = "HUDViewModel.LastPlayed"
+    private var lastPlayedDates: [String: Date] = [:]
+
     /// Timestamp of the last user-initiated play/pause toggle.
-    /// We skip overwriting isPlaying from the timer for ~1.2s after a toggle
-    /// so the optimistic UI state isn't immediately clobbered.
     private var lastToggleTime: Date = .distantPast
 
     public init(stateController: StateController) {
         self.stateController = stateController
+
+        // Load persisted last played dates
+        if let dict = UserDefaults.standard.dictionary(forKey: lastPlayedKey) as? [String: Date] {
+            self.lastPlayedDates = dict
+        }
 
         stateController.$activeService
             .receive(on: DispatchQueue.main)
@@ -66,9 +73,8 @@ public class HUDViewModel: ObservableObject {
 
     private func onSearchTextChanged() {
         selectionIndex = 0
-        searchTask?.cancel()
-
-        let query = searchText.trimmingCharacters(in: .whitespaces)
+        
+        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
 
         if query.isEmpty {
             searchResults = cachedPlaylists.map { .playlist($0) }
@@ -76,22 +82,13 @@ public class HUDViewModel: ObservableObject {
             return
         }
 
-        isSearching = true
-
-        searchTask = Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled else { return }
-            do {
-                let results = try await stateController.activeService?.search(query: query) ?? []
-                guard !Task.isCancelled else { return }
-                self.searchResults = results
-            } catch {
-                guard !Task.isCancelled else { return }
-                print("[HUDViewModel] Search error: \(error)")
-                self.searchResults = []
-            }
-            self.isSearching = false
+        // Local fuzzy search on playlists
+        let filtered = cachedPlaylists.filter { playlist in
+            playlist.name.lowercased().contains(query)
         }
+        
+        self.searchResults = filtered.map { .playlist($0) }
+        self.isSearching = false
     }
 
     private func prefetchPlaylists() async {
@@ -105,13 +102,49 @@ public class HUDViewModel: ObservableObject {
         }
         
         do {
-            let playlists = try await service.fetchPlaylists()
+            var playlists = try await service.fetchPlaylists()
+            
+            // Inject last played dates
+            for i in 0..<playlists.count {
+                playlists[i].lastPlayed = lastPlayedDates[playlists[i].id]
+            }
+            
             cachedPlaylists = playlists
+            sortCachedPlaylists()
+            
             if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-                searchResults = playlists.map { .playlist($0) }
+                searchResults = cachedPlaylists.map { .playlist($0) }
             }
         } catch {
             print("[HUDViewModel] Failed to prefetch playlists: \(error)")
+        }
+    }
+
+    private func sortCachedPlaylists() {
+        cachedPlaylists.sort { (p1, p2) -> Bool in
+            let d1 = p1.lastPlayed ?? .distantPast
+            let d2 = p2.lastPlayed ?? .distantPast
+            if d1 != d2 {
+                return d1 > d2 // Most recent first
+            }
+            return p1.name.localizedCompare(p2.name) == .orderedAscending
+        }
+    }
+
+    private func markPlaylistPlayed(_ playlistID: String) {
+        let now = Date()
+        lastPlayedDates[playlistID] = now
+        UserDefaults.standard.set(lastPlayedDates, forKey: lastPlayedKey)
+        
+        if let idx = cachedPlaylists.firstIndex(where: { $0.id == playlistID }) {
+            cachedPlaylists[idx].lastPlayed = now
+        }
+        
+        sortCachedPlaylists()
+        
+        // Refresh search if empty
+        if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+            searchResults = cachedPlaylists.map { .playlist($0) }
         }
     }
 
@@ -164,6 +197,9 @@ public class HUDViewModel: ObservableObject {
     }
 
     public func playTrack(_ track: SpotifyTrack) {
+        if let playlist = selectedPlaylist {
+            markPlaylistPlayed(playlist.id)
+        }
         stateController.activeService?.playTrack(uri: track.uri, contextUri: selectedPlaylist?.uri)
         scheduleImmediateRefresh()
         WindowManager.shared.hideHUD()

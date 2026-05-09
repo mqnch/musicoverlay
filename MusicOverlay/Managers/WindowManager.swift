@@ -101,7 +101,11 @@ public class WindowManager {
 
             if !hasModifiers {
                 switch event.keyCode {
-                case 49: // Space bar — toggle play/pause
+                case 49: // Space bar
+                    if let firstResponder = self.hudPanel?.firstResponder,
+                       firstResponder is NSText || firstResponder is NSTextField {
+                        return event // Let the text field handle it
+                    }
                     DispatchQueue.main.async { vm.togglePlayPause() }
                     return nil
 
@@ -196,6 +200,7 @@ public class WindowManager {
         
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().alphaValue = 1.0
         } completionHandler: {
             // Fire after animation so the panel is truly key before we ask SwiftUI
@@ -208,7 +213,8 @@ public class WindowManager {
         guard let panel = hudPanel, panel.isVisible else { return }
         
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.15
+            context.duration = 0.2
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().alphaValue = 0.0
         }, completionHandler: {
             panel.orderOut(nil)
