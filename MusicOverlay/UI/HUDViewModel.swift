@@ -224,6 +224,8 @@ public class HUDViewModel: ObservableObject {
         let timeSinceToggle = Date().timeIntervalSince(lastToggleTime)
         if timeSinceToggle > 1.2 {
             isPlaying = track.isPlaying
+            isShuffled = track.isShuffled
+            repeatMode = track.repeatMode
         }
         // Only update sliders if user isn't actively dragging
         if !isSeeking {

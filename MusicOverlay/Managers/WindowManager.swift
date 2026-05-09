@@ -35,6 +35,7 @@ public class WindowManager {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
+        panel.isMovableByWindowBackground = true
         panel.center()
         
         // Setup hardware-accelerated background blur
@@ -42,6 +43,7 @@ public class WindowManager {
         visualEffect.material = .fullScreenUI
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
+        visualEffect.appearance = NSAppearance(named: .vibrantDark)
         visualEffect.wantsLayer = true
         visualEffect.layer?.cornerRadius = 20.0
         visualEffect.layer?.masksToBounds = true
@@ -53,6 +55,9 @@ public class WindowManager {
             .environmentObject(StateController.shared)
             .fontDesign(.monospaced)
         let hostingView = NSHostingView(rootView: hudView)
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = .clear
+        
         visualEffect.addSubview(hostingView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

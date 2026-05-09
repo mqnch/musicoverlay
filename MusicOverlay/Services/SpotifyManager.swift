@@ -29,12 +29,14 @@ public class SpotifyManager: MediaServiceProtocol {
             set tArt to artwork url of current track
             set tPos to player position
             set tVol to sound volume
+            set tShuffle to shuffling
+            set tRepeat to repeating
             if player state is playing then
                 set tState to "playing"
             else
                 set tState to "paused"
             end if
-            return tId & "|||" & tName & "|||" & tArtist & "|||" & tAlbum & "|||" & (tDuration / 1000.0) & "|||" & tArt & "|||" & tPos & "|||" & tVol & "|||" & tState
+            return tId & "|||" & tName & "|||" & tArtist & "|||" & tAlbum & "|||" & (tDuration / 1000.0) & "|||" & tArt & "|||" & tPos & "|||" & tVol & "|||" & tState & "|||" & tShuffle & "|||" & tRepeat
         end if
         return ""
     end tell
@@ -102,20 +104,22 @@ public class SpotifyManager: MediaServiceProtocol {
     public func getCurrentTrack() -> TrackInfo? {
         guard let result = executeCompiledScript(currentTrackScript), !result.isEmpty else { return nil }
         let parts = result.components(separatedBy: "|||")
-        guard parts.count == 9 else {
+        guard parts.count == 11 else {
             print("[SpotifyManager] getCurrentTrack: unexpected field count \(parts.count): \(result)")
             return nil
         }
-        let trackId   = parts[0].trimmingCharacters(in: .whitespaces)
-        let title     = parts[1].trimmingCharacters(in: .whitespaces)
-        let artist    = parts[2].trimmingCharacters(in: .whitespaces)
-        let album     = parts[3].trimmingCharacters(in: .whitespaces)
-        let duration  = TimeInterval(parts[4].trimmingCharacters(in: .whitespaces)) ?? 0
-        let artURLStr = parts[5].trimmingCharacters(in: .whitespaces)
-        let artURL    = artURLStr.isEmpty ? nil : URL(string: artURLStr)
-        let position  = TimeInterval(parts[6].trimmingCharacters(in: .whitespaces)) ?? 0
-        let volume    = Double(parts[7].trimmingCharacters(in: .whitespaces)) ?? 50
-        let isPlaying = parts[8].trimmingCharacters(in: .whitespaces) == "playing"
+        let trackId    = parts[0].trimmingCharacters(in: .whitespaces)
+        let title      = parts[1].trimmingCharacters(in: .whitespaces)
+        let artist     = parts[2].trimmingCharacters(in: .whitespaces)
+        let album      = parts[3].trimmingCharacters(in: .whitespaces)
+        let duration   = TimeInterval(parts[4].trimmingCharacters(in: .whitespaces)) ?? 0
+        let artURLStr  = parts[5].trimmingCharacters(in: .whitespaces)
+        let artURL     = artURLStr.isEmpty ? nil : URL(string: artURLStr)
+        let position   = TimeInterval(parts[6].trimmingCharacters(in: .whitespaces)) ?? 0
+        let volume     = Double(parts[7].trimmingCharacters(in: .whitespaces)) ?? 50
+        let isPlaying  = parts[8].trimmingCharacters(in: .whitespaces) == "playing"
+        let isShuffled = parts[9].trimmingCharacters(in: .whitespaces) == "true"
+        let isRepeating = parts[10].trimmingCharacters(in: .whitespaces) == "true"
 
         return TrackInfo(
             id: trackId,
@@ -126,7 +130,9 @@ public class SpotifyManager: MediaServiceProtocol {
             albumArtURL: artURL,
             position: position,
             volume: volume,
-            isPlaying: isPlaying
+            isPlaying: isPlaying,
+            isShuffled: isShuffled,
+            repeatMode: isRepeating ? .context : .off // basic mapping
         )
     }
 

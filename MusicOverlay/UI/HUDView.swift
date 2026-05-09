@@ -63,6 +63,8 @@ private struct PlaybackControlsView: View {
                     }
                 )
                 .accentColor(.white)
+                .tint(.white)
+                .foregroundColor(.white)
                 .controlSize(.mini)
 
                 HStack {
@@ -83,10 +85,10 @@ private struct PlaybackControlsView: View {
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(.white.opacity(0.85))
                         .padding(8)
+                        .hoverHighlight()
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .hoverHighlight()
                 .help("Previous")
 
                 Button(action: { viewModel.togglePlayPause() }) {
@@ -99,9 +101,9 @@ private struct PlaybackControlsView: View {
                             .foregroundColor(.white)
                             .offset(x: viewModel.isPlaying ? 0 : 1.5)
                     }
+                    .hoverHighlight()
                 }
                 .buttonStyle(.plain)
-                .hoverHighlight()
                 .help(viewModel.isPlaying ? "Pause" : "Play")
 
                 Button(action: { viewModel.nextTrack() }) {
@@ -109,10 +111,10 @@ private struct PlaybackControlsView: View {
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(.white.opacity(0.85))
                         .padding(8)
+                        .hoverHighlight()
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .hoverHighlight()
                 .help("Next")
             }
             .frame(maxWidth: .infinity)
@@ -126,10 +128,10 @@ private struct PlaybackControlsView: View {
                                          ? accentGreen
                                          : .white.opacity(0.45))
                         .padding(6)
+                        .hoverHighlight()
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .hoverHighlight()
                 .help("Shuffle")
 
                 Button(action: { viewModel.cycleRepeat() }) {
@@ -139,10 +141,10 @@ private struct PlaybackControlsView: View {
                                          ? accentGreen
                                          : .white.opacity(0.45))
                         .padding(6)
+                        .hoverHighlight()
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .hoverHighlight()
                 .help("Repeat")
             }
             .frame(maxWidth: .infinity)
@@ -257,7 +259,7 @@ private struct SearchResultRow: View {
         .padding(.horizontal, 10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isSelected ? accentGreen.opacity(0.15) : Color.clear)
+                .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
         )
         .hoverHighlight()
     }
@@ -362,10 +364,10 @@ private struct RightPanel: View {
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.white.opacity(0.8))
                         .padding(8)
+                        .hoverHighlight()
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .hoverHighlight()
 
                 if let playlist = viewModel.selectedPlaylist {
                     RemoteImage(url: playlist.imageURL, size: 22, cornerRadius: 3)

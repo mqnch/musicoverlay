@@ -10,11 +10,14 @@ public struct TrackInfo: Identifiable, Equatable {
     public var position: TimeInterval   // current playback position in seconds
     public var volume: Double           // 0–100
     public var isPlaying: Bool          // actual player state from AppleScript
+    public var isShuffled: Bool         // shuffle state
+    public var repeatMode: RepeatMode   // repeat mode (off/context/track)
 
     public init(id: String, title: String, artist: String, album: String,
                 duration: TimeInterval, albumArtURL: URL? = nil,
                 position: TimeInterval = 0, volume: Double = 50,
-                isPlaying: Bool = false) {
+                isPlaying: Bool = false, isShuffled: Bool = false,
+                repeatMode: RepeatMode = .off) {
         self.id = id
         self.title = title
         self.artist = artist
@@ -24,5 +27,7 @@ public struct TrackInfo: Identifiable, Equatable {
         self.position = position
         self.volume = volume
         self.isPlaying = isPlaying
+        self.isShuffled = isShuffled
+        self.repeatMode = repeatMode
     }
 }
