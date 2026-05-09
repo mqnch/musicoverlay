@@ -43,10 +43,10 @@ public class WindowManager {
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 18.0
+        visualEffect.layer?.cornerRadius = 20.0
         visualEffect.layer?.masksToBounds = true
-        visualEffect.layer?.borderWidth = 0.5
-        visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
+        visualEffect.layer?.borderWidth = 0.8
+        visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         
         // Setup HUD View
         let hudView = HUDView(stateController: StateController.shared)

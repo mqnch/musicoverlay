@@ -21,6 +21,7 @@ public class SpotifyManager: MediaServiceProtocol {
     private let currentTrackScript = NSAppleScript(source: """
     tell application "Spotify"
         if player state is playing or player state is paused then
+            set tId to id of current track
             set tName to name of current track
             set tArtist to artist of current track
             set tAlbum to album of current track
@@ -33,7 +34,7 @@ public class SpotifyManager: MediaServiceProtocol {
             else
                 set tState to "paused"
             end if
-            return tName & "|||" & tArtist & "|||" & tAlbum & "|||" & (tDuration / 1000.0) & "|||" & tArt & "|||" & tPos & "|||" & tVol & "|||" & tState
+            return tId & "|||" & tName & "|||" & tArtist & "|||" & tAlbum & "|||" & (tDuration / 1000.0) & "|||" & tArt & "|||" & tPos & "|||" & tVol & "|||" & tState
         end if
         return ""
     end tell
@@ -101,22 +102,26 @@ public class SpotifyManager: MediaServiceProtocol {
     public func getCurrentTrack() -> TrackInfo? {
         guard let result = executeCompiledScript(currentTrackScript), !result.isEmpty else { return nil }
         let parts = result.components(separatedBy: "|||")
-        guard parts.count == 8 else {
+        guard parts.count == 9 else {
             print("[SpotifyManager] getCurrentTrack: unexpected field count \(parts.count): \(result)")
             return nil
         }
-        let duration  = TimeInterval(parts[3].trimmingCharacters(in: .whitespaces)) ?? 0
-        let artURLStr = parts[4].trimmingCharacters(in: .whitespaces)
+        let trackId   = parts[0].trimmingCharacters(in: .whitespaces)
+        let title     = parts[1].trimmingCharacters(in: .whitespaces)
+        let artist    = parts[2].trimmingCharacters(in: .whitespaces)
+        let album     = parts[3].trimmingCharacters(in: .whitespaces)
+        let duration  = TimeInterval(parts[4].trimmingCharacters(in: .whitespaces)) ?? 0
+        let artURLStr = parts[5].trimmingCharacters(in: .whitespaces)
         let artURL    = artURLStr.isEmpty ? nil : URL(string: artURLStr)
-        let position  = TimeInterval(parts[5].trimmingCharacters(in: .whitespaces)) ?? 0
-        let volume    = Double(parts[6].trimmingCharacters(in: .whitespaces)) ?? 50
-        let isPlaying = parts[7].trimmingCharacters(in: .whitespaces) == "playing"
+        let position  = TimeInterval(parts[6].trimmingCharacters(in: .whitespaces)) ?? 0
+        let volume    = Double(parts[7].trimmingCharacters(in: .whitespaces)) ?? 50
+        let isPlaying = parts[8].trimmingCharacters(in: .whitespaces) == "playing"
 
         return TrackInfo(
-            id: "\(parts[0])-\(parts[1])",   // stable ID so RemoteImage caches correctly
-            title: parts[0],
-            artist: parts[1],
-            album: parts[2],
+            id: trackId,
+            title: title,
+            artist: artist,
+            album: album,
             duration: duration,
             albumArtURL: artURL,
             position: position,

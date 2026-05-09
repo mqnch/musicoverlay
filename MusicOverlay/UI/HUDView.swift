@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let accentGreen = Color(red: 0.18, green: 0.8, blue: 0.44)
+
 // MARK: - Async Image helper
 
 private struct RemoteImage: View {
@@ -60,7 +62,7 @@ private struct PlaybackControlsView: View {
                         if !editing { viewModel.commitSeek() }
                     }
                 )
-                .accentColor(Color(red: 0.18, green: 0.8, blue: 0.44))
+                .accentColor(.white)
                 .controlSize(.mini)
 
                 HStack {
@@ -121,7 +123,7 @@ private struct PlaybackControlsView: View {
                     Image(systemName: "shuffle")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(viewModel.isShuffled
-                                         ? Color(red: 0.18, green: 0.8, blue: 0.44)
+                                         ? accentGreen
                                          : .white.opacity(0.45))
                         .padding(6)
                         .contentShape(Rectangle())
@@ -134,7 +136,7 @@ private struct PlaybackControlsView: View {
                     Image(systemName: viewModel.repeatMode.systemImage)
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(viewModel.repeatMode.isActive
-                                         ? Color(red: 0.18, green: 0.8, blue: 0.44)
+                                         ? accentGreen
                                          : .white.opacity(0.45))
                         .padding(6)
                         .contentShape(Rectangle())
@@ -194,8 +196,16 @@ private struct NowPlayingPanel: View {
 // MARK: - Search Result Row
 
 private struct SearchResultRow: View {
+    @EnvironmentObject var stateController: StateController
     let result: SearchResult
     let isSelected: Bool
+
+    private var isPlaying: Bool {
+        if case .track(let track) = result {
+            return track.uri == stateController.currentTrack?.id
+        }
+        return false
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -211,7 +221,7 @@ private struct SearchResultRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(track.title)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(isPlaying ? accentGreen : .white)
                         .lineLimit(1)
                     Text(track.artist)
                         .font(.system(size: 11))
@@ -247,7 +257,7 @@ private struct SearchResultRow: View {
         .padding(.horizontal, 10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isSelected ? Color.white.opacity(0.14) : Color.clear)
+                .fill(isSelected ? accentGreen.opacity(0.15) : Color.clear)
         )
         .hoverHighlight()
     }
@@ -256,14 +266,19 @@ private struct SearchResultRow: View {
 // MARK: - Playlist Track Row
 
 private struct PlaylistTrackRow: View {
+    @EnvironmentObject var stateController: StateController
     let track: SpotifyTrack
     let index: Int
+
+    private var isPlaying: Bool {
+        track.uri == stateController.currentTrack?.id
+    }
 
     var body: some View {
         HStack(spacing: 10) {
             Text("\(index + 1)")
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.white.opacity(0.25))
+                .foregroundColor(isPlaying ? accentGreen : .white.opacity(0.25))
                 .frame(width: 18, alignment: .trailing)
 
             RemoteImage(url: track.albumArtURL, size: 32, cornerRadius: 4)
@@ -271,7 +286,7 @@ private struct PlaylistTrackRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundColor(isPlaying ? accentGreen : .white)
                     .lineLimit(1)
                 Text(track.artist)
                     .font(.system(size: 11))
@@ -331,6 +346,7 @@ private struct RightPanel: View {
                 }
                 .padding(.trailing, 4)
             }
+            .scrollIndicators(.hidden)
             .onChange(of: viewModel.selectionIndex) { _, newIndex in
                 withAnimation { proxy.scrollTo(newIndex, anchor: .center) }
             }
@@ -391,6 +407,7 @@ private struct RightPanel: View {
                     }
                     .padding(.trailing, 4)
                 }
+                .scrollIndicators(.hidden)
             }
         }
     }
