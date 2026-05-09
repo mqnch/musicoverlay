@@ -47,11 +47,12 @@ public struct OnboardingView: View {
                             .padding(.top, 5)
                     }
                     .frame(width: 150, height: 120)
-                    .background(selectedService == "appleMusic" ? Color.pink.opacity(0.2) : Color.gray.opacity(0.1))
-                    .cornerRadius(12)
+                    .background(selectedService == "appleMusic" ? Color.pink.opacity(0.15) : Color.white.opacity(0.05))
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(16)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(selectedService == "appleMusic" ? Color.pink : Color.clear, lineWidth: 2)
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(selectedService == "appleMusic" ? Color.pink.opacity(0.8) : Color.white.opacity(0.1), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -78,11 +79,12 @@ public struct OnboardingView: View {
                             .padding(.top, 5)
                     }
                     .frame(width: 150, height: 120)
-                    .background(selectedService == "spotify" ? Color.green.opacity(0.2) : Color.gray.opacity(0.1))
-                    .cornerRadius(12)
+                    .background(selectedService == "spotify" ? Color.green.opacity(0.15) : Color.white.opacity(0.05))
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(16)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(selectedService == "spotify" ? Color.green : Color.clear, lineWidth: 2)
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(selectedService == "spotify" ? Color.green.opacity(0.8) : Color.white.opacity(0.1), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)

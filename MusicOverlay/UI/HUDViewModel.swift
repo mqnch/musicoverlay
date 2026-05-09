@@ -41,6 +41,7 @@ public class HUDViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var searchTask: Task<Void, Never>? = nil
     private var cachedPlaylists: [Playlist] = []
+    private var playlistTracksCache: [String: [SpotifyTrack]] = [:]
     /// Timestamp of the last user-initiated play/pause toggle.
     /// We skip overwriting isPlaying from the timer for ~1.2s after a toggle
     /// so the optimistic UI state isn't immediately clobbered.
@@ -95,6 +96,14 @@ public class HUDViewModel: ObservableObject {
 
     private func prefetchPlaylists() async {
         guard let service = stateController.activeService else { return }
+        // Optimization: don't refetch if we already have them
+        if !cachedPlaylists.isEmpty {
+            if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                searchResults = cachedPlaylists.map { .playlist($0) }
+            }
+            return
+        }
+        
         do {
             let playlists = try await service.fetchPlaylists()
             cachedPlaylists = playlists
@@ -110,6 +119,14 @@ public class HUDViewModel: ObservableObject {
 
     public func openPlaylist(_ playlist: Playlist) {
         selectedPlaylist = playlist
+        selectionIndex = 0
+        
+        if let cached = playlistTracksCache[playlist.id] {
+            playlistTracks = cached
+            isLoadingTracks = false
+            return
+        }
+        
         playlistTracks = []
         isLoadingTracks = true
 
@@ -117,6 +134,7 @@ public class HUDViewModel: ObservableObject {
             do {
                 let tracks = try await stateController.activeService?.fetchPlaylistTracks(playlistID: playlist.id) ?? []
                 self.playlistTracks = tracks
+                self.playlistTracksCache[playlist.id] = tracks
                 print("[HUDViewModel] Loaded \(tracks.count) tracks for playlist '\(playlist.name)'")
             } catch {
                 print("[HUDViewModel] fetchPlaylistTracks error: \(error)")
@@ -129,6 +147,7 @@ public class HUDViewModel: ObservableObject {
     public func closePlaylist() {
         selectedPlaylist = nil
         playlistTracks = []
+        selectionIndex = 0
     }
 
     // MARK: - Playback actions
@@ -138,6 +157,7 @@ public class HUDViewModel: ObservableObject {
         case .track(let track):
             stateController.activeService?.playTrack(uri: track.uri, contextUri: nil)
             scheduleImmediateRefresh()
+            WindowManager.shared.hideHUD()
         case .playlist(let playlist):
             openPlaylist(playlist)
         }
@@ -146,6 +166,7 @@ public class HUDViewModel: ObservableObject {
     public func playTrack(_ track: SpotifyTrack) {
         stateController.activeService?.playTrack(uri: track.uri, contextUri: selectedPlaylist?.uri)
         scheduleImmediateRefresh()
+        WindowManager.shared.hideHUD()
     }
 
     public func togglePlayPause() {
@@ -200,15 +221,20 @@ public class HUDViewModel: ObservableObject {
     public func moveSelectionUp() {
         if selectionIndex > 0 { selectionIndex -= 1 }
     }
-
+    
     public func moveSelectionDown() {
-        let max = displayedResults.count - 1
-        if selectionIndex < max { selectionIndex += 1 }
+        let count = selectedPlaylist != nil ? playlistTracks.count : displayedResults.count
+        if selectionIndex < count - 1 { selectionIndex += 1 }
     }
-
+    
     public func activateSelection() {
-        guard !displayedResults.isEmpty, selectionIndex < displayedResults.count else { return }
-        playResult(displayedResults[selectionIndex])
+        if let _ = selectedPlaylist {
+            guard selectionIndex < playlistTracks.count else { return }
+            playTrack(playlistTracks[selectionIndex])
+        } else {
+            guard !displayedResults.isEmpty, selectionIndex < displayedResults.count else { return }
+            playResult(displayedResults[selectionIndex])
+        }
     }
 
     // MARK: - Now Playing refresh (called by 0.5s timer)

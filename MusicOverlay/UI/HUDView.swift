@@ -261,7 +261,7 @@ private struct SearchResultRow: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
         )
-        .hoverHighlight()
+        .hoverHighlight(.background)
     }
 }
 
@@ -271,6 +271,7 @@ private struct PlaylistTrackRow: View {
     @EnvironmentObject var stateController: StateController
     let track: SpotifyTrack
     let index: Int
+    let isSelected: Bool
 
     private var isPlaying: Bool {
         track.uri == stateController.currentTrack?.id
@@ -302,8 +303,12 @@ private struct PlaylistTrackRow: View {
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
+        )
         .contentShape(Rectangle())
-        .hoverHighlight()
+        .hoverHighlight(.background)
     }
 }
 
@@ -311,6 +316,10 @@ private struct PlaylistTrackRow: View {
 
 private struct RightPanel: View {
     @ObservedObject var viewModel: HUDViewModel
+    @State private var searchScrollMetrics = ScrollMetrics()
+    @State private var searchDragOffset: CGFloat? = nil
+    @State private var playlistScrollMetrics = ScrollMetrics()
+    @State private var playlistDragOffset: CGFloat? = nil
 
     var body: some View {
         if viewModel.selectedPlaylist != nil {
@@ -319,11 +328,234 @@ private struct RightPanel: View {
             searchResultsView
         }
     }
+}
+
+// MARK: - Custom Scroll Bar helpers
+
+private struct ScrollMetrics {
+    var contentHeight: CGFloat = 0
+    var viewportHeight: CGFloat = 0
+    var scrollOffset: CGFloat = 0
+}
+
+private struct SmoothScrollView<Content: View>: NSViewRepresentable {
+    let content: Content
+    let scrollToIndex: Int?
+    @Binding var metrics: ScrollMetrics
+    @Binding var externalScrollOffset: CGFloat?
+
+    init(scrollToIndex: Int? = nil, 
+         metrics: Binding<ScrollMetrics>, 
+         externalScrollOffset: Binding<CGFloat?> = .constant(nil),
+         @ViewBuilder content: () -> Content) {
+        self.content = content()
+        self.scrollToIndex = scrollToIndex
+        self._metrics = metrics
+        self._externalScrollOffset = externalScrollOffset
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.drawsBackground = false
+        scrollView.autohidesScrollers = true
+        
+        let hostingView = NSHostingView(rootView: content)
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        
+        scrollView.documentView = hostingView
+        
+        // Constraints to make hostingView span the width of the clipView
+        NSLayoutConstraint.activate([
+            hostingView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            hostingView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor)
+        ])
+        
+        context.coordinator.setup(scrollView)
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.update(scrollToIndex: scrollToIndex, externalScrollOffset: externalScrollOffset)
+        
+        if let hostingView = nsView.documentView as? NSHostingView<Content> {
+            hostingView.rootView = content
+            hostingView.frame.size.width = nsView.contentView.bounds.width
+            hostingView.needsLayout = true
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject {
+        var parent: SmoothScrollView
+        weak var scrollView: NSScrollView?
+        private var lastScrollToIndex: Int?
+
+        init(_ parent: SmoothScrollView) {
+            self.parent = parent
+        }
+
+        func setup(_ scrollView: NSScrollView) {
+            self.scrollView = scrollView
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleScroll),
+                name: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView
+            )
+            updateMetrics()
+        }
+
+        func update(scrollToIndex: Int?, externalScrollOffset: CGFloat?) {
+            updateMetrics()
+            
+            guard let sv = scrollView, let doc = sv.documentView else { return }
+
+            // 1. Handle Dragging (highest priority)
+            if let external = externalScrollOffset {
+                sv.contentView.scroll(to: NSPoint(x: 0, y: external))
+                return 
+            }
+
+            // 2. Handle programmatic index scrolling
+            if let index = scrollToIndex, index != lastScrollToIndex {
+                lastScrollToIndex = index
+                
+                let rowHeight: CGFloat = 48
+                let targetY = CGFloat(index) * rowHeight
+                let viewportHeight = sv.contentView.bounds.height
+                let currentScroll = sv.contentView.bounds.origin.y
+                
+                if targetY < currentScroll || targetY + rowHeight > currentScroll + viewportHeight {
+                    let centerOffset = targetY - (viewportHeight / 2) + (rowHeight / 2)
+                    let maxScroll = (doc.frame.height) - viewportHeight
+                    let finalY = max(0, min(maxScroll, centerOffset))
+                    
+                    NSAnimationContext.runAnimationGroup { context in
+                        context.duration = 0.2
+                        context.timingFunction = .init(name: .easeInEaseOut)
+                        sv.contentView.animator().scroll(to: NSPoint(x: 0, y: finalY))
+                    }
+                }
+            } else if scrollToIndex == nil {
+                lastScrollToIndex = nil
+            }
+        }
+
+        @objc func handleScroll() {
+            updateMetrics()
+        }
+
+        private func updateMetrics() {
+            guard let sv = scrollView, let doc = sv.documentView else { return }
+            let contentHeight = doc.frame.height
+            let viewportHeight = sv.contentView.bounds.height
+            let scrollOffset = sv.contentView.bounds.origin.y
+            
+            DispatchQueue.main.async {
+                self.parent.metrics = ScrollMetrics(
+                    contentHeight: contentHeight,
+                    viewportHeight: viewportHeight,
+                    scrollOffset: scrollOffset
+                )
+            }
+        }
+    }
+}
+
+private struct CustomScrollbar: View {
+    let metrics: ScrollMetrics
+    @Binding var dragOffset: CGFloat?
+    
+    var body: some View {
+        let ratio = metrics.viewportHeight / max(1, metrics.contentHeight)
+        let show = ratio < 1.0 && metrics.contentHeight > 0
+        
+        ZStack(alignment: .top) {
+            // ── Wider hit area ───────────────────────────────────────────
+            // This 16px area captures clicks/drags and prevents them from 
+            // moving the app window.
+            Color.white.opacity(0.001)
+                .frame(width: 16)
+                .contentShape(Rectangle())
+                .onTapGesture { } // Consumes clicks
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            let thumbHeight = max(20, metrics.viewportHeight * ratio)
+                            let thumbRange = metrics.viewportHeight - thumbHeight
+                            let scrollRange = metrics.contentHeight - metrics.viewportHeight
+                            
+                            let deltaY = value.location.y - (thumbHeight / 2)
+                            let newProgress = max(0, min(1, deltaY / max(1, thumbRange)))
+                            dragOffset = newProgress * scrollRange
+                        }
+                        .onEnded { _ in
+                            dragOffset = nil
+                        }
+                )
+
+            // ── Gutter ───────────────────────────────────────────────────
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color.white.opacity(0.05))
+                .frame(width: 4)
+                .padding(.horizontal, 6) // Center in the 16px area
+            
+            // ── Thumb ────────────────────────────────────────────────────
+            if show {
+                let thumbHeight = max(20, metrics.viewportHeight * ratio)
+                let trackHeight = metrics.viewportHeight
+                let scrollRange = metrics.contentHeight - metrics.viewportHeight
+                let thumbRange = trackHeight - thumbHeight
+                let progress = metrics.scrollOffset / max(1, scrollRange)
+                let thumbOffset = progress * thumbRange
+                
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.white.opacity(0.3))
+                    .frame(width: 4, height: thumbHeight)
+                    .offset(y: thumbOffset)
+                    .allowsHitTesting(false) // Drag is handled by the 16px background
+            }
+        }
+        .frame(width: 16)
+        .opacity(show ? 1 : 0)
+        .animation(.easeInOut(duration: 0.2), value: show)
+    }
+}
+
+// MARK: - Window Dragging
+
+private struct WindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        return DraggableView()
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    class DraggableView: NSView {
+        override func mouseDown(with event: NSEvent) {
+            // Native macOS window dragging
+            window?.performDrag(with: event)
+        }
+    }
+}
+
+extension RightPanel {
+
 
     @ViewBuilder
     private var searchResultsView: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
+        ZStack(alignment: .trailing) {
+            SmoothScrollView(
+                scrollToIndex: viewModel.selectionIndex, 
+                metrics: $searchScrollMetrics,
+                externalScrollOffset: $searchDragOffset
+            ) {
                 LazyVStack(spacing: 2) {
                     if viewModel.isSearching {
                         HStack {
@@ -346,12 +578,12 @@ private struct RightPanel: View {
                         }
                     }
                 }
-                .padding(.trailing, 4)
+                .padding(.trailing, 20)
             }
-            .scrollIndicators(.hidden)
-            .onChange(of: viewModel.selectionIndex) { _, newIndex in
-                withAnimation { proxy.scrollTo(newIndex, anchor: .center) }
-            }
+            
+            CustomScrollbar(metrics: searchScrollMetrics, dragOffset: $searchDragOffset)
+                .padding(.vertical, 4)
+                .padding(.trailing, 2)
         }
     }
 
@@ -396,20 +628,29 @@ private struct RightPanel: View {
                     .foregroundColor(.white.opacity(0.3))
                 Spacer()
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(Array(viewModel.playlistTracks.enumerated()), id: \.element.id) { index, track in
-                            PlaylistTrackRow(track: track, index: index)
-                                .onTapGesture {
-                                    viewModel.playTrack(track)
-                                    WindowManager.shared.toggleHUD()
-                                }
-                                .contentShape(Rectangle())
+                ZStack(alignment: .trailing) {
+                    SmoothScrollView(
+                        scrollToIndex: viewModel.selectionIndex,
+                        metrics: $playlistScrollMetrics,
+                        externalScrollOffset: $playlistDragOffset
+                    ) {
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(viewModel.playlistTracks.enumerated()), id: \.element.id) { index, track in
+                                PlaylistTrackRow(track: track, index: index, isSelected: index == viewModel.selectionIndex)
+                                    .onTapGesture {
+                                        viewModel.playTrack(track)
+                                        WindowManager.shared.toggleHUD()
+                                    }
+                                    .contentShape(Rectangle())
+                            }
                         }
+                        .padding(.trailing, 20)
                     }
-                    .padding(.trailing, 4)
+                    
+                    CustomScrollbar(metrics: playlistScrollMetrics, dragOffset: $playlistDragOffset)
+                        .padding(.vertical, 4)
+                        .padding(.trailing, 2)
                 }
-                .scrollIndicators(.hidden)
             }
         }
     }
@@ -460,10 +701,10 @@ public struct HUDView: View {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
+                    .fill(.ultraThinMaterial)
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                            .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
                     )
             )
             .padding(.horizontal, 16)
@@ -502,13 +743,21 @@ public struct HUDView: View {
         }
         .onReceive(timer) { _ in viewModel.refreshNowPlaying() }
         .background(
+            ZStack {
+                // This captures drags only on the outer 12px edge of the HUD
+                WindowDragArea()
+                
+                // We mask the center so only the edges are draggable
+                Color.black
+                    .padding(12)
+                    .blendMode(.destinationOut)
+            }
+            .compositingGroup()
+        )
+        .background(
             Group {
                 Button("") { viewModel.moveSelectionUp()   }.keyboardShortcut(.upArrow,   modifiers: [])
                 Button("") { viewModel.moveSelectionDown() }.keyboardShortcut(.downArrow, modifiers: [])
-                Button("") {
-                    if viewModel.selectedPlaylist != nil { viewModel.closePlaylist() }
-                    else { viewModel.activateSelection() }
-                }.keyboardShortcut(.return, modifiers: [])
                 Button("") {
                     if viewModel.selectedPlaylist != nil { viewModel.closePlaylist() }
                 }.keyboardShortcut(.escape, modifiers: [])
@@ -520,13 +769,19 @@ public struct HUDView: View {
 
 // MARK: - Hover Support
 
+enum HoverStyle {
+    case icon, background
+}
+
 private struct HoverHighlight: ViewModifier {
+    let style: HoverStyle
     @State private var isHovering = false
 
     func body(content: Content) -> some View {
         content
-            .background(isHovering ? Color.white.opacity(0.08) : Color.clear)
+            .background(style == .background && isHovering ? Color.white.opacity(0.1) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .brightness(style == .icon && isHovering ? 0.25 : 0)
             .onHover { hovering in
                 isHovering = hovering
                 if hovering {
@@ -539,7 +794,7 @@ private struct HoverHighlight: ViewModifier {
 }
 
 extension View {
-    func hoverHighlight() -> some View {
-        self.modifier(HoverHighlight())
+    func hoverHighlight(_ style: HoverStyle = .icon) -> some View {
+        self.modifier(HoverHighlight(style: style))
     }
 }

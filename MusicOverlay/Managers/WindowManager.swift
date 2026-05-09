@@ -13,6 +13,11 @@ public class WindowManager {
     private var hudPanel: NSPanel?
     private var onboardingWindow: NSWindow?
     private var keyboardMonitor: Any?
+    
+    // Double-tap state
+    private var lastKeyPressTime: Date = .distantPast
+    private var lastKeyCode: UInt16 = 0
+    private var pendingAction: DispatchWorkItem?
 
     /// Registered by HUDView so the keyboard monitor can route commands.
     public weak var activeViewModel: HUDViewModel?
@@ -35,20 +40,23 @@ public class WindowManager {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.isMovableByWindowBackground = true
+        panel.isMovableByWindowBackground = false
         panel.center()
         
-        // Setup hardware-accelerated background blur
+        // Setup hardware-accelerated background blur (Liquid Glass)
         let visualEffect = NSVisualEffectView()
-        visualEffect.material = .fullScreenUI
+        visualEffect.material = .hudWindow
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
         visualEffect.appearance = NSAppearance(named: .vibrantDark)
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 20.0
+        visualEffect.layer?.cornerRadius = 24.0
         visualEffect.layer?.masksToBounds = true
-        visualEffect.layer?.borderWidth = 0.8
-        visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        visualEffect.layer?.borderWidth = 0.5
+        visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
+        
+        // Apply mask to fix "ghost corners" where vibrancy renders outside rounded borders
+        visualEffect.maskImage = .maskImage(cornerRadius: 24.0, size: panel.contentRect(forFrameRect: panel.frame).size)
         
         // Setup HUD View
         let hudView = HUDView(stateController: StateController.shared)
@@ -97,12 +105,42 @@ public class WindowManager {
                     DispatchQueue.main.async { vm.togglePlayPause() }
                     return nil
 
-                case 124: // Right arrow — next track
-                    DispatchQueue.main.async { vm.nextTrack() }
+                case 124: // Right arrow
+                    let now = Date()
+                    if lastKeyCode == 124 && now.timeIntervalSince(lastKeyPressTime) < 0.3 {
+                        // Double tap - Next
+                        pendingAction?.cancel()
+                        DispatchQueue.main.async { vm.nextTrack() }
+                        lastKeyCode = 0 
+                    } else {
+                        // Potential single tap - Enter
+                        lastKeyPressTime = now
+                        lastKeyCode = 124
+                        let action = DispatchWorkItem { [weak vm] in
+                            vm?.activateSelection()
+                        }
+                        pendingAction = action
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: action)
+                    }
                     return nil
 
-                case 123: // Left arrow — previous track
-                    DispatchQueue.main.async { vm.previousTrack() }
+                case 123: // Left arrow
+                    let now = Date()
+                    if lastKeyCode == 123 && now.timeIntervalSince(lastKeyPressTime) < 0.3 {
+                        // Double tap - Previous
+                        pendingAction?.cancel()
+                        DispatchQueue.main.async { vm.previousTrack() }
+                        lastKeyCode = 0
+                    } else {
+                        // Potential single tap - Back
+                        lastKeyPressTime = now
+                        lastKeyCode = 123
+                        let action = DispatchWorkItem { [weak vm] in
+                            vm?.closePlaylist()
+                        }
+                        pendingAction = action
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: action)
+                    }
                     return nil
 
                 case 125: // Down arrow — navigate list if results visible, else volume down
@@ -181,14 +219,34 @@ public class WindowManager {
         if onboardingWindow == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 600, height: 450),
-                styleMask: [.titled, .closable, .miniaturizable],
+                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = true
             window.title = "MusicOverlay Setup"
             window.center()
             window.level = .floating
             window.isReleasedWhenClosed = false
+            
+            // Setup Liquid Glass for Onboarding
+            let visualEffect = NSVisualEffectView()
+            visualEffect.material = .hudWindow
+            visualEffect.blendingMode = .behindWindow
+            visualEffect.state = .active
+            visualEffect.appearance = NSAppearance(named: .vibrantDark)
+            visualEffect.wantsLayer = true
+            visualEffect.layer?.cornerRadius = 24.0
+            visualEffect.layer?.masksToBounds = true
+            visualEffect.layer?.borderWidth = 0.5
+            visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
+            
+            // Apply mask to fix "ghost corners"
+            visualEffect.maskImage = .maskImage(cornerRadius: 24.0, size: window.contentRect(forFrameRect: window.frame).size)
             
             let rootView = OnboardingView(onClose: { [weak self] in
                 self?.closeOnboardingWindow()
@@ -197,7 +255,19 @@ public class WindowManager {
             .fontDesign(.monospaced)
             
             let hostingView = NSHostingView(rootView: rootView)
-            window.contentView = hostingView
+            hostingView.wantsLayer = true
+            hostingView.layer?.backgroundColor = .clear
+            
+            visualEffect.addSubview(hostingView)
+            hostingView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                hostingView.topAnchor.constraint(equalTo: visualEffect.topAnchor),
+                hostingView.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
+                hostingView.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
+                hostingView.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor)
+            ])
+            
+            window.contentView = visualEffect
             
             self.onboardingWindow = window
         }
@@ -214,4 +284,15 @@ public class WindowManager {
 
 extension Notification.Name {
     static let hudDidShow = Notification.Name("HUDDidShow")
+}
+
+extension NSImage {
+    static func maskImage(cornerRadius: CGFloat, size: NSSize) -> NSImage {
+        let image = NSImage(size: size, flipped: false) { rect in
+            NSColor.black.set()
+            NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius).fill()
+            return true
+        }
+        return image
+    }
 }
