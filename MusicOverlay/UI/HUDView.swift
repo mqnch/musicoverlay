@@ -75,81 +75,76 @@ private struct PlaybackControlsView: View {
             }
 
             // ── Row 1: Prev / Play-Pause / Next ─────────────────────────
-            HStack(spacing: 22) {
+            HStack(spacing: 28) {
                 Button(action: { viewModel.previousTrack() }) {
                     Image(systemName: "backward.fill")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 18, weight: .medium))
                         .foregroundColor(.white.opacity(0.85))
+                        .padding(8)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverHighlight()
                 .help("Previous")
 
                 Button(action: { viewModel.togglePlayPause() }) {
                     ZStack {
                         Circle()
-                            .fill(Color.white.opacity(0.15))
-                            .frame(width: 38, height: 38)
+                            .fill(Color.white.opacity(0.18))
+                            .frame(width: 44, height: 44)
                         Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundColor(.white)
-                            .offset(x: viewModel.isPlaying ? 0 : 1)
+                            .offset(x: viewModel.isPlaying ? 0 : 1.5)
                     }
                 }
                 .buttonStyle(.plain)
+                .hoverHighlight()
                 .help(viewModel.isPlaying ? "Pause" : "Play")
 
                 Button(action: { viewModel.nextTrack() }) {
                     Image(systemName: "forward.fill")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 18, weight: .medium))
                         .foregroundColor(.white.opacity(0.85))
+                        .padding(8)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverHighlight()
                 .help("Next")
             }
             .frame(maxWidth: .infinity)
 
             // ── Row 2: Shuffle / Repeat ──────────────────────────────────
-            HStack(spacing: 32) {
+            HStack(spacing: 40) {
                 Button(action: { viewModel.toggleShuffle() }) {
                     Image(systemName: "shuffle")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(viewModel.isShuffled
                                          ? Color(red: 0.18, green: 0.8, blue: 0.44)
                                          : .white.opacity(0.45))
+                        .padding(6)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverHighlight()
                 .help("Shuffle")
 
                 Button(action: { viewModel.cycleRepeat() }) {
                     Image(systemName: viewModel.repeatMode.systemImage)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(viewModel.repeatMode.isActive
                                          ? Color(red: 0.18, green: 0.8, blue: 0.44)
                                          : .white.opacity(0.45))
+                        .padding(6)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverHighlight()
                 .help("Repeat")
             }
             .frame(maxWidth: .infinity)
 
-            // ── Volume slider ────────────────────────────────────────────
-            HStack(spacing: 6) {
-                Image(systemName: "speaker.fill")
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.3))
-                Slider(
-                    value: $viewModel.volume,
-                    in: 0...100,
-                    onEditingChanged: { editing in
-                        if !editing { viewModel.commitVolume() }
-                    }
-                )
-                .accentColor(.white.opacity(0.6))
-                .controlSize(.mini)
-                Image(systemName: "speaker.wave.3.fill")
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.3))
-            }
         }
     }
 }
@@ -248,12 +243,13 @@ private struct SearchResultRow: View {
                     .foregroundColor(.white.opacity(0.25))
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .padding(.horizontal, 10)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isSelected ? Color.white.opacity(0.14) : Color.clear)
         )
+        .hoverHighlight()
     }
 }
 
@@ -287,10 +283,10 @@ private struct PlaylistTrackRow: View {
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.white.opacity(0.3))
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .padding(.horizontal, 10)
-        .background(Color.clear)
         .contentShape(Rectangle())
+        .hoverHighlight()
     }
 }
 
@@ -347,10 +343,13 @@ private struct RightPanel: View {
             HStack(spacing: 8) {
                 Button(action: { viewModel.closePlaylist() }) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.7))
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white.opacity(0.8))
+                        .padding(8)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .hoverHighlight()
 
                 if let playlist = viewModel.selectedPlaylist {
                     RemoteImage(url: playlist.imageURL, size: 22, cornerRadius: 3)
@@ -440,8 +439,14 @@ public struct HUDView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color.white.opacity(0.07))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                    )
+            )
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 10)
@@ -453,9 +458,9 @@ public struct HUDView: View {
                     .padding(.trailing, 12)
 
                 Rectangle()
-                    .fill(Color.white.opacity(0.08))
-                    .frame(width: 1)
-                    .padding(.vertical, 4)
+                    .fill(Color.white.opacity(0.1))
+                    .frame(width: 0.5)
+                    .padding(.vertical, 12)
 
                 RightPanel(viewModel: viewModel)
                     .padding(.leading, 12)
@@ -491,5 +496,31 @@ public struct HUDView: View {
             }
             .opacity(0)
         )
+    }
+}
+
+// MARK: - Hover Support
+
+private struct HoverHighlight: ViewModifier {
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(isHovering ? Color.white.opacity(0.08) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .onHover { hovering in
+                isHovering = hovering
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+    }
+}
+
+extension View {
+    func hoverHighlight() -> some View {
+        self.modifier(HoverHighlight())
     }
 }

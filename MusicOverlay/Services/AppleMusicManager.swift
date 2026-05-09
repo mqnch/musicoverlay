@@ -101,8 +101,8 @@ public class AppleMusicManager: MediaServiceProtocol {
         print("AppleMusic playPlaylist requested for ID: \(uri)")
     }
 
-    public func playTrack(uri: String) {
-        print("AppleMusic playTrack requested for URI: \(uri)")
+    public func playTrack(uri: String, contextUri: String?) {
+        print("AppleMusic playTrack requested for URI: \(uri) (context: \(contextUri ?? "none"))")
     }
 
     public func search(query: String) async throws -> [SearchResult] {

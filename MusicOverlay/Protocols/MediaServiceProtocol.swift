@@ -19,7 +19,7 @@ public protocol MediaServiceProtocol {
 
     // MARK: - Playback commands
     func playPlaylist(uri: String)
-    func playTrack(uri: String)
+    func playTrack(uri: String, contextUri: String?)
     func setShuffle(_ on: Bool)
     func setRepeat(_ mode: RepeatMode)
 

@@ -136,7 +136,7 @@ public class HUDViewModel: ObservableObject {
     public func playResult(_ result: SearchResult) {
         switch result {
         case .track(let track):
-            stateController.activeService?.playTrack(uri: track.uri)
+            stateController.activeService?.playTrack(uri: track.uri, contextUri: nil)
             scheduleImmediateRefresh()
         case .playlist(let playlist):
             openPlaylist(playlist)
@@ -144,7 +144,7 @@ public class HUDViewModel: ObservableObject {
     }
 
     public func playTrack(_ track: SpotifyTrack) {
-        stateController.activeService?.playTrack(uri: track.uri)
+        stateController.activeService?.playTrack(uri: track.uri, contextUri: selectedPlaylist?.uri)
         scheduleImmediateRefresh()
     }
 

@@ -44,7 +44,7 @@ public class HotkeyManager {
             return event
         }
         
-        // Global monitor (when app is in background)
+        // Global monitor (when app is in the background)
         // Note: This requires Accessibility permissions in macOS System Settings!
         self.globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { event in
             handler(event)

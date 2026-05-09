@@ -39,12 +39,14 @@ public class WindowManager {
         
         // Setup hardware-accelerated background blur
         let visualEffect = NSVisualEffectView()
-        visualEffect.material = .hudWindow
+        visualEffect.material = .fullScreenUI
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 16.0
+        visualEffect.layer?.cornerRadius = 18.0
         visualEffect.layer?.masksToBounds = true
+        visualEffect.layer?.borderWidth = 0.5
+        visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
         
         // Setup HUD View
         let hudView = HUDView(stateController: StateController.shared)

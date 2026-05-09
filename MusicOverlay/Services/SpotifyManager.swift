@@ -128,11 +128,48 @@ public class SpotifyManager: MediaServiceProtocol {
     // MARK: - MediaServiceProtocol — Playback commands
 
     public func playPlaylist(uri: String) {
-        _ = executeDynamicAppleScript("tell application \"Spotify\" to play track \"\(uri)\"")
+        Task {
+            await SpotifyAuthManager.shared.refreshTokenIfNeeded()
+            guard let url = URL(string: "https://api.spotify.com/v1/me/player/play"),
+                  var request = authorizedRequest(url: url, method: "PUT") else { return }
+            
+            let body: [String: Any] = ["context_uri": uri]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            URLSession.shared.dataTask(with: request) { _, response, error in
+                if let error = error { print("[SpotifyManager] playPlaylist error: \(error)") }
+                else if let http = response as? HTTPURLResponse, http.statusCode != 204 {
+                    print("[SpotifyManager] playPlaylist HTTP \(http.statusCode)")
+                }
+            }.resume()
+        }
     }
 
-    public func playTrack(uri: String) {
-        _ = executeDynamicAppleScript("tell application \"Spotify\" to play track \"\(uri)\"")
+    public func playTrack(uri: String, contextUri: String?) {
+        Task {
+            await SpotifyAuthManager.shared.refreshTokenIfNeeded()
+            guard let url = URL(string: "https://api.spotify.com/v1/me/player/play"),
+                  var request = authorizedRequest(url: url, method: "PUT") else { return }
+            
+            var body: [String: Any] = [:]
+            if let context = contextUri {
+                body["context_uri"] = context
+                body["offset"] = ["uri": uri]
+            } else {
+                body["uris"] = [uri]
+            }
+            
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            URLSession.shared.dataTask(with: request) { _, response, error in
+                if let error = error { print("[SpotifyManager] playTrack error: \(error)") }
+                else if let http = response as? HTTPURLResponse, http.statusCode != 204 {
+                    print("[SpotifyManager] playTrack HTTP \(http.statusCode)")
+                }
+            }.resume()
+        }
     }
 
     public func setShuffle(_ on: Bool) {
@@ -311,7 +348,7 @@ public class SpotifyManager: MediaServiceProtocol {
         await SpotifyAuthManager.shared.refreshTokenIfNeeded()
 
         var allTracks: [SpotifyTrack] = []
-        var nextURL: URL? = URL(string: "https://api.spotify.com/v1/playlists/\(playlistID)/tracks?limit=50")
+        var nextURL: URL? = URL(string: "https://api.spotify.com/v1/playlists/\(playlistID)/items?limit=50")
 
         while let url = nextURL {
             guard let request = authorizedRequest(url: url) else {
@@ -329,10 +366,10 @@ public class SpotifyManager: MediaServiceProtocol {
 
             if let items = json["items"] as? [[String: Any]] {
                 for item in items {
-                    // Skip null track entries (podcast episodes, local files)
-                    guard let trackObj = item["track"] as? [String: Any] else { continue }
-                    // Skip non-track types (episodes)
-                    if let type_ = trackObj["type"] as? String, type_ != "track" { continue }
+                    guard let trackObj = item["item"] as? [String: Any] else { continue }
+                    
+                    let type = trackObj["type"] as? String ?? "unknown"
+                    if type != "track" { continue }
 
                     guard let id   = trackObj["id"]   as? String,
                           let name = trackObj["name"] as? String,
