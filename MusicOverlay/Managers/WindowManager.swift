@@ -11,8 +11,8 @@ public class WindowManager {
     
     public func setupHUD() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-            styleMask: [.borderless, .nonactivatingPanel],
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 470),
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -83,10 +83,8 @@ public class WindowManager {
         guard let panel = hudPanel else { return }
         
         panel.alphaValue = 0.0
-        // nonactivatingPanel cannot become key — use orderFront instead of
-        // makeKeyAndOrderFront to avoid the "canBecomeKeyWindow" warning.
-        panel.orderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
         
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15

@@ -244,7 +244,7 @@ public class SpotifyManager: MediaServiceProtocol {
 
     public func fetchPlaylistTracks(playlistID: String) async throws -> [SpotifyTrack] {
         var allTracks: [SpotifyTrack] = []
-        var nextURL: URL? = URL(string: "https://api.spotify.com/v1/playlists/\(playlistID)/tracks?limit=50&fields=next,items(track(id,name,uri,duration_ms,artists,album(name,images)))")
+        var nextURL: URL? = URL(string: "https://api.spotify.com/v1/playlists/\(playlistID)/tracks?limit=50")
 
         while let url = nextURL {
             guard let request = authorizedRequest(url: url) else { break }

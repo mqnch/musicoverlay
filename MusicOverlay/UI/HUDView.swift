@@ -42,61 +42,65 @@ private struct PlaybackControlsView: View {
     @ObservedObject var viewModel: HUDViewModel
 
     var body: some View {
-        HStack(spacing: 18) {
-            // Shuffle
-            Button(action: { viewModel.toggleShuffle() }) {
-                Image(systemName: "shuffle")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(viewModel.isShuffled ? Color(red: 0.18, green: 0.8, blue: 0.44) : .white.opacity(0.55))
-            }
-            .buttonStyle(.plain)
-            .help("Shuffle")
-
-            // Previous
-            Button(action: { viewModel.previousTrack() }) {
-                Image(systemName: "backward.fill")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white.opacity(0.85))
-            }
-            .buttonStyle(.plain)
-            .help("Previous")
-
-            // Play / Pause
-            Button(action: { viewModel.togglePlayPause() }) {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.12))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.white)
-                        .offset(x: viewModel.isPlaying ? 0 : 1) // optical centering for play icon
+        VStack(spacing: 10) {
+            // Row 1: Prev / Play-Pause / Next
+            HStack(spacing: 22) {
+                Button(action: { viewModel.previousTrack() }) {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white.opacity(0.85))
                 }
-            }
-            .buttonStyle(.plain)
-            .help(viewModel.isPlaying ? "Pause" : "Play")
+                .buttonStyle(.plain)
+                .help("Previous")
 
-            // Next
-            Button(action: { viewModel.nextTrack() }) {
-                Image(systemName: "forward.fill")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white.opacity(0.85))
-            }
-            .buttonStyle(.plain)
-            .help("Next")
+                Button(action: { viewModel.togglePlayPause() }) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.15))
+                            .frame(width: 38, height: 38)
+                        Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.white)
+                            .offset(x: viewModel.isPlaying ? 0 : 1)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(viewModel.isPlaying ? "Pause" : "Play")
 
-            // Repeat
-            Button(action: { viewModel.cycleRepeat() }) {
-                Image(systemName: viewModel.repeatMode.systemImage)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(viewModel.repeatMode.isActive
-                                     ? Color(red: 0.18, green: 0.8, blue: 0.44)
-                                     : .white.opacity(0.55))
+                Button(action: { viewModel.nextTrack() }) {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white.opacity(0.85))
+                }
+                .buttonStyle(.plain)
+                .help("Next")
             }
-            .buttonStyle(.plain)
-            .help("Repeat")
+            .frame(maxWidth: .infinity)
+
+            // Row 2: Shuffle / Repeat
+            HStack(spacing: 32) {
+                Button(action: { viewModel.toggleShuffle() }) {
+                    Image(systemName: "shuffle")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(viewModel.isShuffled
+                                         ? Color(red: 0.18, green: 0.8, blue: 0.44)
+                                         : .white.opacity(0.45))
+                }
+                .buttonStyle(.plain)
+                .help("Shuffle")
+
+                Button(action: { viewModel.cycleRepeat() }) {
+                    Image(systemName: viewModel.repeatMode.systemImage)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(viewModel.repeatMode.isActive
+                                         ? Color(red: 0.18, green: 0.8, blue: 0.44)
+                                         : .white.opacity(0.45))
+                }
+                .buttonStyle(.plain)
+                .help("Repeat")
+            }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -107,40 +111,45 @@ private struct NowPlayingPanel: View {
     @ObservedObject var viewModel: HUDViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .center, spacing: 10) {
             Text("Now Playing")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.white.opacity(0.4))
                 .textCase(.uppercase)
                 .tracking(1)
+                .frame(maxWidth: .infinity, alignment: .center)
 
             if let track = track {
-                // Album art placeholder
-                RemoteImage(url: track.albumArtURL, size: 160, cornerRadius: 10)
-                    .shadow(color: .black.opacity(0.4), radius: 10, x: 0, y: 4)
+                RemoteImage(url: track.albumArtURL, size: 180, cornerRadius: 12)
+                    .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 5)
+                    .frame(maxWidth: .infinity, alignment: .center)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(spacing: 3) {
                     Text(track.title)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.white)
                         .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .center)
                     Text(track.artist)
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.55))
                         .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
             } else {
-                RemoteImage(url: nil, size: 160, cornerRadius: 10)
+                RemoteImage(url: nil, size: 180, cornerRadius: 12)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 Text("Nothing playing")
-                    .font(.system(size: 13))
+                    .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.35))
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
 
             Spacer()
 
             PlaybackControlsView(viewModel: viewModel)
         }
-        .frame(width: 180)
+        .frame(width: 190)
     }
 }
 
@@ -254,22 +263,12 @@ private struct RightPanel: View {
     @ObservedObject var viewModel: HUDViewModel
 
     var body: some View {
-        ZStack {
-            // Search / browse results
+        // Instant switch — no animation
+        if viewModel.selectedPlaylist != nil {
+            playlistDetailView
+        } else {
             searchResultsView
-                .opacity(viewModel.selectedPlaylist == nil ? 1 : 0)
-                .offset(x: viewModel.selectedPlaylist == nil ? 0 : -30)
-
-            // Playlist detail
-            if viewModel.selectedPlaylist != nil {
-                playlistDetailView
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .trailing).combined(with: .opacity)
-                    ))
-            }
         }
-        .animation(.easeInOut(duration: 0.28), value: viewModel.selectedPlaylist?.id)
     }
 
     // MARK: Search results
@@ -299,9 +298,7 @@ private struct RightPanel: View {
                                 .id(index)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    withAnimation(.easeInOut(duration: 0.28)) {
-                                        viewModel.playResult(result)
-                                    }
+                                    viewModel.playResult(result)
                                 }
                         }
                     }
@@ -322,9 +319,7 @@ private struct RightPanel: View {
             // Header
             HStack(spacing: 8) {
                 Button(action: {
-                    withAnimation(.easeInOut(duration: 0.28)) {
-                        viewModel.closePlaylist()
-                    }
+                    viewModel.closePlaylist()
                 }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 13, weight: .semibold))
@@ -368,10 +363,6 @@ private struct RightPanel: View {
                                     viewModel.playTrack(track)
                                     WindowManager.shared.toggleHUD()
                                 }
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(Color.white.opacity(0.0))
-                                )
                                 .contentShape(Rectangle())
                         }
                     }
@@ -463,14 +454,14 @@ public struct HUDView: View {
                 Button("") { viewModel.moveSelectionDown() }.keyboardShortcut(.downArrow, modifiers: [])
                 Button("") {
                     if viewModel.selectedPlaylist != nil {
-                        withAnimation(.easeInOut(duration: 0.28)) { viewModel.closePlaylist() }
+                        viewModel.closePlaylist()
                     } else {
-                        withAnimation(.easeInOut(duration: 0.28)) { viewModel.activateSelection() }
+                        viewModel.activateSelection()
                     }
                 }.keyboardShortcut(.return, modifiers: [])
                 Button("") {
                     if viewModel.selectedPlaylist != nil {
-                        withAnimation(.easeInOut(duration: 0.28)) { viewModel.closePlaylist() }
+                        viewModel.closePlaylist()
                     }
                 }.keyboardShortcut(.escape, modifiers: [])
             }
