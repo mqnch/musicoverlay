@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - Async Image helper (no external dependency)
+// MARK: - Async Image helper
 
 private struct RemoteImage: View {
     let url: URL?
@@ -36,14 +36,45 @@ private struct RemoteImage: View {
     }
 }
 
+// MARK: - Time formatter
+
+private func formatTime(_ seconds: Double) -> String {
+    let s = Int(max(0, seconds))
+    return String(format: "%d:%02d", s / 60, s % 60)
+}
+
 // MARK: - Playback Controls
 
 private struct PlaybackControlsView: View {
     @ObservedObject var viewModel: HUDViewModel
 
     var body: some View {
-        VStack(spacing: 10) {
-            // Row 1: Prev / Play-Pause / Next
+        VStack(spacing: 8) {
+            // ── Progress slider ──────────────────────────────────────────
+            VStack(spacing: 2) {
+                Slider(
+                    value: $viewModel.playbackPosition,
+                    in: 0...max(1, viewModel.trackDuration),
+                    onEditingChanged: { editing in
+                        viewModel.isSeeking = editing
+                        if !editing { viewModel.commitSeek() }
+                    }
+                )
+                .accentColor(Color(red: 0.18, green: 0.8, blue: 0.44))
+                .controlSize(.mini)
+
+                HStack {
+                    Text(formatTime(viewModel.playbackPosition))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.35))
+                    Spacer()
+                    Text(formatTime(viewModel.trackDuration))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.35))
+                }
+            }
+
+            // ── Row 1: Prev / Play-Pause / Next ─────────────────────────
             HStack(spacing: 22) {
                 Button(action: { viewModel.previousTrack() }) {
                     Image(systemName: "backward.fill")
@@ -77,7 +108,7 @@ private struct PlaybackControlsView: View {
             }
             .frame(maxWidth: .infinity)
 
-            // Row 2: Shuffle / Repeat
+            // ── Row 2: Shuffle / Repeat ──────────────────────────────────
             HStack(spacing: 32) {
                 Button(action: { viewModel.toggleShuffle() }) {
                     Image(systemName: "shuffle")
@@ -100,6 +131,25 @@ private struct PlaybackControlsView: View {
                 .help("Repeat")
             }
             .frame(maxWidth: .infinity)
+
+            // ── Volume slider ────────────────────────────────────────────
+            HStack(spacing: 6) {
+                Image(systemName: "speaker.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.3))
+                Slider(
+                    value: $viewModel.volume,
+                    in: 0...100,
+                    onEditingChanged: { editing in
+                        if !editing { viewModel.commitVolume() }
+                    }
+                )
+                .accentColor(.white.opacity(0.6))
+                .controlSize(.mini)
+                Image(systemName: "speaker.wave.3.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.3))
+            }
         }
     }
 }
@@ -111,7 +161,7 @@ private struct NowPlayingPanel: View {
     @ObservedObject var viewModel: HUDViewModel
 
     var body: some View {
-        VStack(alignment: .center, spacing: 10) {
+        VStack(alignment: .center, spacing: 8) {
             Text("Now Playing")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.white.opacity(0.4))
@@ -120,11 +170,11 @@ private struct NowPlayingPanel: View {
                 .frame(maxWidth: .infinity, alignment: .center)
 
             if let track = track {
-                RemoteImage(url: track.albumArtURL, size: 180, cornerRadius: 12)
+                RemoteImage(url: track.albumArtURL, size: 170, cornerRadius: 12)
                     .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 5)
                     .frame(maxWidth: .infinity, alignment: .center)
 
-                VStack(spacing: 3) {
+                VStack(spacing: 2) {
                     Text(track.title)
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.white)
@@ -137,7 +187,7 @@ private struct NowPlayingPanel: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
             } else {
-                RemoteImage(url: nil, size: 180, cornerRadius: 12)
+                RemoteImage(url: nil, size: 170, cornerRadius: 12)
                     .frame(maxWidth: .infinity, alignment: .center)
                 Text("Nothing playing")
                     .font(.system(size: 12))
@@ -145,9 +195,9 @@ private struct NowPlayingPanel: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             }
 
-            Spacer()
-
+            // Controls directly below art — no Spacer pushing them down
             PlaybackControlsView(viewModel: viewModel)
+                .padding(.top, 4)
         }
         .frame(width: 190)
     }
@@ -180,9 +230,7 @@ private struct SearchResultRow: View {
                         .foregroundColor(.white.opacity(0.5))
                         .lineLimit(1)
                 }
-
                 Spacer()
-
                 Text(track.durationString)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.white.opacity(0.3))
@@ -201,9 +249,7 @@ private struct SearchResultRow: View {
                             .foregroundColor(.white.opacity(0.5))
                     }
                 }
-
                 Spacer()
-
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(.white.opacity(0.25))
@@ -243,9 +289,7 @@ private struct PlaylistTrackRow: View {
                     .foregroundColor(.white.opacity(0.5))
                     .lineLimit(1)
             }
-
             Spacer()
-
             Text(track.durationString)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.white.opacity(0.3))
@@ -257,21 +301,18 @@ private struct PlaylistTrackRow: View {
     }
 }
 
-// MARK: - Right Panel (search / playlist detail)
+// MARK: - Right Panel
 
 private struct RightPanel: View {
     @ObservedObject var viewModel: HUDViewModel
 
     var body: some View {
-        // Instant switch — no animation
         if viewModel.selectedPlaylist != nil {
             playlistDetailView
         } else {
             searchResultsView
         }
     }
-
-    // MARK: Search results
 
     @ViewBuilder
     private var searchResultsView: some View {
@@ -280,9 +321,7 @@ private struct RightPanel: View {
                 LazyVStack(spacing: 2) {
                     if viewModel.isSearching {
                         HStack {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .padding(.vertical, 8)
+                            ProgressView().scaleEffect(0.7).padding(.vertical, 8)
                             Spacer()
                         }
                         .padding(.horizontal, 10)
@@ -297,9 +336,7 @@ private struct RightPanel: View {
                             SearchResultRow(result: result, isSelected: index == viewModel.selectionIndex)
                                 .id(index)
                                 .contentShape(Rectangle())
-                                .onTapGesture {
-                                    viewModel.playResult(result)
-                                }
+                                .onTapGesture { viewModel.playResult(result) }
                         }
                     }
                 }
@@ -311,16 +348,11 @@ private struct RightPanel: View {
         }
     }
 
-    // MARK: Playlist detail
-
     @ViewBuilder
     private var playlistDetailView: some View {
         VStack(spacing: 0) {
-            // Header
             HStack(spacing: 8) {
-                Button(action: {
-                    viewModel.closePlaylist()
-                }) {
+                Button(action: { viewModel.closePlaylist() }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.white.opacity(0.7))
@@ -345,8 +377,7 @@ private struct RightPanel: View {
 
             if viewModel.isLoadingTracks {
                 Spacer()
-                ProgressView()
-                    .scaleEffect(0.8)
+                ProgressView().scaleEffect(0.8)
                 Spacer()
             } else if viewModel.playlistTracks.isEmpty {
                 Spacer()
@@ -380,7 +411,8 @@ public struct HUDView: View {
     @StateObject private var viewModel: HUDViewModel
     @FocusState private var isSearchFocused: Bool
 
-    let timer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
+    // 0.5s for near-instant track updates
+    let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     public init(stateController: StateController) {
         _viewModel = StateObject(wrappedValue: HUDViewModel(stateController: stateController))
@@ -388,12 +420,10 @@ public struct HUDView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // ── Search bar ────────────────────────────────────────────────
+            // ── Search bar ──────────────────────────────────────────────
             HStack(spacing: 10) {
                 if viewModel.isSearching {
-                    ProgressView()
-                        .scaleEffect(0.65)
-                        .frame(width: 16)
+                    ProgressView().scaleEffect(0.65).frame(width: 16)
                 } else {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 15, weight: .medium))
@@ -423,46 +453,37 @@ public struct HUDView: View {
             .padding(.top, 14)
             .padding(.bottom, 10)
 
-            // ── Main panels ───────────────────────────────────────────────
+            // ── Main panels ─────────────────────────────────────────────
             HStack(alignment: .top, spacing: 0) {
-                // Left: Now Playing + Controls
                 NowPlayingPanel(track: stateController.currentTrack, viewModel: viewModel)
                     .padding(.leading, 16)
                     .padding(.trailing, 12)
 
-                // Separator
                 Rectangle()
                     .fill(Color.white.opacity(0.08))
                     .frame(width: 1)
                     .padding(.vertical, 4)
 
-                // Right: Search results / playlist detail
                 RightPanel(viewModel: viewModel)
                     .padding(.leading, 12)
                     .padding(.trailing, 8)
             }
             .padding(.bottom, 14)
         }
-        .frame(width: 620, height: 470)
+        .frame(width: 620, height: 500)
         .background(Color.clear)
         .onAppear { isSearchFocused = true }
         .onReceive(timer) { _ in viewModel.refreshNowPlaying() }
-        // ── Hidden keyboard shortcuts ──────────────────────────────────
         .background(
             Group {
                 Button("") { viewModel.moveSelectionUp()   }.keyboardShortcut(.upArrow,   modifiers: [])
                 Button("") { viewModel.moveSelectionDown() }.keyboardShortcut(.downArrow, modifiers: [])
                 Button("") {
-                    if viewModel.selectedPlaylist != nil {
-                        viewModel.closePlaylist()
-                    } else {
-                        viewModel.activateSelection()
-                    }
+                    if viewModel.selectedPlaylist != nil { viewModel.closePlaylist() }
+                    else { viewModel.activateSelection() }
                 }.keyboardShortcut(.return, modifiers: [])
                 Button("") {
-                    if viewModel.selectedPlaylist != nil {
-                        viewModel.closePlaylist()
-                    }
+                    if viewModel.selectedPlaylist != nil { viewModel.closePlaylist() }
                 }.keyboardShortcut(.escape, modifiers: [])
             }
             .opacity(0)

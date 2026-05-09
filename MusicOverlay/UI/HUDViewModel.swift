@@ -18,15 +18,22 @@ public class HUDViewModel: ObservableObject {
     @Published public var playlistTracks: [SpotifyTrack] = []
     @Published public var isLoadingTracks: Bool = false
 
-    // MARK: - Keyboard selection (results list)
+    // MARK: - Keyboard selection
 
     @Published public var selectionIndex: Int = 0
 
-    // MARK: - Playback controls state
+    // MARK: - Playback state
 
     @Published public var isPlaying: Bool = false
     @Published public var isShuffled: Bool = false
     @Published public var repeatMode: RepeatMode = .off
+
+    // MARK: - Slider state
+
+    @Published public var playbackPosition: Double = 0   // seconds
+    @Published public var trackDuration: Double = 1      // seconds (avoid /0)
+    @Published public var volume: Double = 50            // 0–100
+    @Published public var isSeeking: Bool = false        // true while user drags progress slider
 
     // MARK: - Internals
 
@@ -48,10 +55,7 @@ public class HUDViewModel: ObservableObject {
 
     // MARK: - Computed
 
-    /// Current items displayed in the right panel (mixed).
-    public var displayedResults: [SearchResult] {
-        searchResults
-    }
+    public var displayedResults: [SearchResult] { searchResults }
 
     // MARK: - Search
 
@@ -62,7 +66,6 @@ public class HUDViewModel: ObservableObject {
         let query = searchText.trimmingCharacters(in: .whitespaces)
 
         if query.isEmpty {
-            // Show cached playlists as playlist results when search is empty
             searchResults = cachedPlaylists.map { .playlist($0) }
             isSearching = false
             return
@@ -71,10 +74,8 @@ public class HUDViewModel: ObservableObject {
         isSearching = true
 
         searchTask = Task {
-            // 300 ms debounce
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-
             do {
                 let results = try await stateController.activeService?.search(query: query) ?? []
                 guard !Task.isCancelled else { return }
@@ -93,7 +94,6 @@ public class HUDViewModel: ObservableObject {
         do {
             let playlists = try await service.fetchPlaylists()
             cachedPlaylists = playlists
-            // Only populate results if the search bar is empty
             if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
                 searchResults = playlists.map { .playlist($0) }
             }
@@ -113,8 +113,9 @@ public class HUDViewModel: ObservableObject {
             do {
                 let tracks = try await stateController.activeService?.fetchPlaylistTracks(playlistID: playlist.id) ?? []
                 self.playlistTracks = tracks
+                print("[HUDViewModel] Loaded \(tracks.count) tracks for playlist '\(playlist.name)'")
             } catch {
-                print("[HUDViewModel] Failed to load playlist tracks: \(error)")
+                print("[HUDViewModel] fetchPlaylistTracks error: \(error)")
                 self.playlistTracks = []
             }
             self.isLoadingTracks = false
@@ -132,6 +133,7 @@ public class HUDViewModel: ObservableObject {
         switch result {
         case .track(let track):
             stateController.activeService?.playTrack(uri: track.uri)
+            scheduleImmediateRefresh()
         case .playlist(let playlist):
             openPlaylist(playlist)
         }
@@ -139,6 +141,7 @@ public class HUDViewModel: ObservableObject {
 
     public func playTrack(_ track: SpotifyTrack) {
         stateController.activeService?.playTrack(uri: track.uri)
+        scheduleImmediateRefresh()
     }
 
     public func togglePlayPause() {
@@ -152,10 +155,12 @@ public class HUDViewModel: ObservableObject {
 
     public func nextTrack() {
         stateController.activeService?.next()
+        scheduleImmediateRefresh()
     }
 
     public func previousTrack() {
         stateController.activeService?.previous()
+        scheduleImmediateRefresh()
     }
 
     public func toggleShuffle() {
@@ -168,7 +173,18 @@ public class HUDViewModel: ObservableObject {
         stateController.activeService?.setRepeat(repeatMode)
     }
 
-    // MARK: - Keyboard navigation (search results list)
+    // MARK: - Volume & seeking
+
+    public func commitVolume() {
+        stateController.activeService?.setVolume(volume)
+    }
+
+    public func commitSeek() {
+        stateController.activeService?.seekTo(playbackPosition)
+        isSeeking = false
+    }
+
+    // MARK: - Keyboard navigation
 
     public func moveSelectionUp() {
         if selectionIndex > 0 { selectionIndex -= 1 }
@@ -184,12 +200,27 @@ public class HUDViewModel: ObservableObject {
         playResult(displayedResults[selectionIndex])
     }
 
-    // MARK: - Track polling
+    // MARK: - Now Playing refresh (called by 0.5s timer)
 
     public func refreshNowPlaying() {
-        if let track = stateController.activeService?.getCurrentTrack() {
-            stateController.currentTrack = track
-            isPlaying = true
+        guard let track = stateController.activeService?.getCurrentTrack() else { return }
+        stateController.currentTrack = track
+        isPlaying = true
+        // Only update sliders if user isn't actively dragging
+        if !isSeeking {
+            playbackPosition = track.position
+        }
+        if trackDuration != track.duration && track.duration > 0 {
+            trackDuration = track.duration
+        }
+        volume = track.volume
+    }
+
+    /// Fire a refresh ~350ms after a track command so Spotify has time to switch.
+    private func scheduleImmediateRefresh() {
+        Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            refreshNowPlaying()
         }
     }
 }

@@ -11,7 +11,7 @@ public class WindowManager {
     
     public func setupHUD() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 470),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 500),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false

@@ -7,13 +7,19 @@ public struct TrackInfo: Identifiable, Equatable {
     public let album: String
     public let duration: TimeInterval
     public let albumArtURL: URL?
-    
-    public init(id: String, title: String, artist: String, album: String, duration: TimeInterval, albumArtURL: URL? = nil) {
+    public var position: TimeInterval   // current playback position in seconds
+    public var volume: Double           // 0–100
+
+    public init(id: String, title: String, artist: String, album: String,
+                duration: TimeInterval, albumArtURL: URL? = nil,
+                position: TimeInterval = 0, volume: Double = 50) {
         self.id = id
         self.title = title
         self.artist = artist
         self.album = album
         self.duration = duration
         self.albumArtURL = albumArtURL
+        self.position = position
+        self.volume = volume
     }
 }

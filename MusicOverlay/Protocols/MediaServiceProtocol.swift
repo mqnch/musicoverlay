@@ -12,11 +12,9 @@ public protocol MediaServiceProtocol {
     func fetchPlaylists() async throws -> [Playlist]
 
     // MARK: - Search
-    /// Returns a mixed list of tracks and playlists matching `query`.
     func search(query: String) async throws -> [SearchResult]
 
     // MARK: - Playlist drill-down
-    /// Returns the tracks inside a specific playlist.
     func fetchPlaylistTracks(playlistID: String) async throws -> [SpotifyTrack]
 
     // MARK: - Playback commands
@@ -24,4 +22,8 @@ public protocol MediaServiceProtocol {
     func playTrack(uri: String)
     func setShuffle(_ on: Bool)
     func setRepeat(_ mode: RepeatMode)
+
+    // MARK: - Volume & seeking
+    func setVolume(_ volume: Double)   // 0–100
+    func seekTo(_ position: TimeInterval)
 }

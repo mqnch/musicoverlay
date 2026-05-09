@@ -126,4 +126,16 @@ public class AppleMusicManager: MediaServiceProtocol {
         var error: NSDictionary?
         NSAppleScript(source: "tell application \"Music\" to set song repeat to \(value)")?.executeAndReturnError(&error)
     }
+
+    public func setVolume(_ volume: Double) {
+        let clamped = Int(max(0, min(100, volume)))
+        var error: NSDictionary?
+        NSAppleScript(source: "tell application \"Music\" to set sound volume to \(clamped)")?.executeAndReturnError(&error)
+    }
+
+    public func seekTo(_ position: TimeInterval) {
+        var error: NSDictionary?
+        NSAppleScript(source: "tell application \"Music\" to set player position to \(position)")?.executeAndReturnError(&error)
+    }
 }
+

@@ -11,19 +11,24 @@ public class SpotifyManager: MediaServiceProtocol {
 
     // MARK: - Precompiled AppleScripts
 
-    private let playScript    = NSAppleScript(source: "tell application \"Spotify\" to play")
-    private let pauseScript   = NSAppleScript(source: "tell application \"Spotify\" to pause")
-    private let nextScript    = NSAppleScript(source: "tell application \"Spotify\" to next track")
-    private let prevScript    = NSAppleScript(source: "tell application \"Spotify\" to previous track")
+    private let playScript  = NSAppleScript(source: "tell application \"Spotify\" to play")
+    private let pauseScript = NSAppleScript(source: "tell application \"Spotify\" to pause")
+    private let nextScript  = NSAppleScript(source: "tell application \"Spotify\" to next track")
+    private let prevScript  = NSAppleScript(source: "tell application \"Spotify\" to previous track")
 
+    /// Returns 7 pipe-delimited fields:
+    /// title ||| artist ||| album ||| durationSec ||| artworkURL ||| playerPosition ||| soundVolume
     private let currentTrackScript = NSAppleScript(source: """
     tell application "Spotify"
-        if player state is playing then
+        if player state is playing or player state is paused then
             set tName to name of current track
             set tArtist to artist of current track
             set tAlbum to album of current track
             set tDuration to duration of current track
-            return tName & "|||" & tArtist & "|||" & tAlbum & "|||" & (tDuration / 1000.0)
+            set tArt to artwork url of current track
+            set tPos to player position
+            set tVol to sound volume
+            return tName & "|||" & tArtist & "|||" & tAlbum & "|||" & (tDuration / 1000.0) & "|||" & tArt & "|||" & tPos & "|||" & tVol
         end if
         return ""
     end tell
@@ -35,7 +40,7 @@ public class SpotifyManager: MediaServiceProtocol {
         var error: NSDictionary?
         let output = script?.executeAndReturnError(&error)
         if let error = error {
-            print("Spotify AppleScript Error: \(error)")
+            print("[SpotifyManager] AppleScript error: \(error)")
             return nil
         }
         return output?.stringValue
@@ -46,7 +51,7 @@ public class SpotifyManager: MediaServiceProtocol {
         if let script = NSAppleScript(source: source) {
             let output = script.executeAndReturnError(&error)
             if let error = error {
-                print("Spotify AppleScript Error: \(error)")
+                print("[SpotifyManager] AppleScript error: \(error)")
                 return nil
             }
             return output.stringValue
@@ -62,9 +67,10 @@ public class SpotifyManager: MediaServiceProtocol {
         return token
     }
 
-    private func authorizedRequest(url: URL) -> URLRequest? {
+    private func authorizedRequest(url: URL, method: String = "GET") -> URLRequest? {
         guard let token = accessToken() else { return nil }
         var req = URLRequest(url: url)
+        req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return req
     }
@@ -90,10 +96,26 @@ public class SpotifyManager: MediaServiceProtocol {
     public func getCurrentTrack() -> TrackInfo? {
         guard let result = executeCompiledScript(currentTrackScript), !result.isEmpty else { return nil }
         let parts = result.components(separatedBy: "|||")
-        guard parts.count == 4 else { return nil }
-        let duration = TimeInterval(parts[3]) ?? 0.0
-        return TrackInfo(id: UUID().uuidString, title: parts[0], artist: parts[1],
-                         album: parts[2], duration: duration, albumArtURL: nil)
+        guard parts.count == 7 else {
+            print("[SpotifyManager] getCurrentTrack: unexpected field count \(parts.count): \(result)")
+            return nil
+        }
+        let duration  = TimeInterval(parts[3].trimmingCharacters(in: .whitespaces)) ?? 0
+        let artURLStr = parts[4].trimmingCharacters(in: .whitespaces)
+        let artURL    = artURLStr.isEmpty ? nil : URL(string: artURLStr)
+        let position  = TimeInterval(parts[5].trimmingCharacters(in: .whitespaces)) ?? 0
+        let volume    = Double(parts[6].trimmingCharacters(in: .whitespaces)) ?? 50
+
+        return TrackInfo(
+            id: "\(parts[0])-\(parts[1])",   // stable ID so RemoteImage caches correctly
+            title: parts[0],
+            artist: parts[1],
+            album: parts[2],
+            duration: duration,
+            albumArtURL: artURL,
+            position: position,
+            volume: volume
+        )
     }
 
     // MARK: - MediaServiceProtocol — Playback commands
@@ -107,14 +129,45 @@ public class SpotifyManager: MediaServiceProtocol {
     }
 
     public func setShuffle(_ on: Bool) {
-        let value = on ? "true" : "false"
-        _ = executeDynamicAppleScript("tell application \"Spotify\" to set shuffling to \(value)")
+        _ = executeDynamicAppleScript("tell application \"Spotify\" to set shuffling to \(on ? "true" : "false")")
     }
 
+    /// Uses the Spotify Web API for 3-state repeat (off / context / track).
+    /// Falls back to AppleScript boolean for on/off.
     public func setRepeat(_ mode: RepeatMode) {
-        // Spotify AppleScript only has on/off for repeating
-        let value = mode.isActive ? "true" : "false"
-        _ = executeDynamicAppleScript("tell application \"Spotify\" to set repeating to \(value)")
+        // AppleScript: boolean on/off
+        let boolVal = mode.isActive ? "true" : "false"
+        _ = executeDynamicAppleScript("tell application \"Spotify\" to set repeating to \(boolVal)")
+
+        // Web API: precise 3-state (requires user-modify-playback-state scope)
+        let state: String
+        switch mode {
+        case .off:     state = "off"
+        case .context: state = "context"
+        case .track:   state = "track"
+        }
+
+        guard let url = URL(string: "https://api.spotify.com/v1/me/player/repeat?state=\(state)"),
+              let request = authorizedRequest(url: url, method: "PUT") else { return }
+
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            if let error = error {
+                print("[SpotifyManager] setRepeat API error: \(error)")
+            } else if let http = response as? HTTPURLResponse {
+                print("[SpotifyManager] setRepeat API status: \(http.statusCode)")
+            }
+        }.resume()
+    }
+
+    // MARK: - MediaServiceProtocol — Volume & seeking
+
+    public func setVolume(_ volume: Double) {
+        let clamped = Int(max(0, min(100, volume)))
+        _ = executeDynamicAppleScript("tell application \"Spotify\" to set sound volume to \(clamped)")
+    }
+
+    public func seekTo(_ position: TimeInterval) {
+        _ = executeDynamicAppleScript("tell application \"Spotify\" to set player position to \(position)")
     }
 
     // MARK: - MediaServiceProtocol — Playlist fetching
@@ -128,7 +181,11 @@ public class SpotifyManager: MediaServiceProtocol {
               let request = authorizedRequest(url: url) else { return [] }
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            let body = String(data: data, encoding: .utf8)?.prefix(300) ?? "(unreadable)"
+            print("[SpotifyManager] fetchPlaylists HTTP \(http.statusCode): \(body)")
+            return []
+        }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let items = json["items"] as? [[String: Any]] else { return [] }
@@ -138,19 +195,14 @@ public class SpotifyManager: MediaServiceProtocol {
                   let name = item["name"] as? String,
                   let uri  = item["uri"]  as? String else { return nil }
 
-            // Parse first image URL
             let imageURL: URL? = {
                 if let images = item["images"] as? [[String: Any]],
                    let first = images.first,
-                   let urlStr = first["url"] as? String {
-                    return URL(string: urlStr)
-                }
+                   let urlStr = first["url"] as? String { return URL(string: urlStr) }
                 return nil
             }()
 
-            // Track count
             let trackCount: Int? = (item["tracks"] as? [String: Any])?["total"] as? Int
-
             return Playlist(id: id, name: name, uri: uri, imageURL: imageURL, trackCount: trackCount)
         }
 
@@ -175,13 +227,16 @@ public class SpotifyManager: MediaServiceProtocol {
               let request = authorizedRequest(url: url) else { return [] }
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8)?.prefix(300) ?? "(unreadable)"
+            print("[SpotifyManager] search HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1): \(body)")
+            return []
+        }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
 
         var results: [SearchResult] = []
 
-        // Parse tracks
         if let tracksObj = json["tracks"] as? [String: Any],
            let trackItems = tracksObj["items"] as? [[String: Any]] {
             for item in trackItems {
@@ -192,31 +247,26 @@ public class SpotifyManager: MediaServiceProtocol {
                 let artist: String = {
                     if let artists = item["artists"] as? [[String: Any]],
                        let first = artists.first,
-                       let artistName = first["name"] as? String { return artistName }
+                       let n = first["name"] as? String { return n }
                     return "Unknown Artist"
                 }()
 
-                let album: String = (item["album"] as? [String: Any])?["name"] as? String ?? ""
-
+                let album = (item["album"] as? [String: Any])?["name"] as? String ?? ""
                 let albumArtURL: URL? = {
                     if let albumObj = item["album"] as? [String: Any],
                        let images = albumObj["images"] as? [[String: Any]],
-                       let last = images.last,           // smallest image
-                       let urlStr = last["url"] as? String {
-                        return URL(string: urlStr)
-                    }
+                       let last = images.last,
+                       let urlStr = last["url"] as? String { return URL(string: urlStr) }
                     return nil
                 }()
 
                 let durationMs = item["duration_ms"] as? Int ?? 0
-
-                let track = SpotifyTrack(id: id, title: name, artist: artist, album: album,
-                                         uri: uri, albumArtURL: albumArtURL, durationMs: durationMs)
-                results.append(.track(track))
+                results.append(.track(SpotifyTrack(id: id, title: name, artist: artist,
+                                                    album: album, uri: uri,
+                                                    albumArtURL: albumArtURL, durationMs: durationMs)))
             }
         }
 
-        // Parse playlists
         if let playlistsObj = json["playlists"] as? [String: Any],
            let playlistItems = playlistsObj["items"] as? [[String: Any]] {
             for item in playlistItems {
@@ -247,15 +297,27 @@ public class SpotifyManager: MediaServiceProtocol {
         var nextURL: URL? = URL(string: "https://api.spotify.com/v1/playlists/\(playlistID)/tracks?limit=50")
 
         while let url = nextURL {
-            guard let request = authorizedRequest(url: url) else { break }
+            guard let request = authorizedRequest(url: url) else {
+                print("[SpotifyManager] fetchPlaylistTracks: no access token")
+                break
+            }
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { break }
+            guard let http = response as? HTTPURLResponse else { break }
+            guard http.statusCode == 200 else {
+                let body = String(data: data, encoding: .utf8)?.prefix(400) ?? "(unreadable)"
+                print("[SpotifyManager] fetchPlaylistTracks HTTP \(http.statusCode): \(body)")
+                break
+            }
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { break }
 
             if let items = json["items"] as? [[String: Any]] {
                 for item in items {
-                    guard let trackObj = item["track"] as? [String: Any],
-                          let id   = trackObj["id"]   as? String,
+                    // Skip null track entries (podcast episodes, local files)
+                    guard let trackObj = item["track"] as? [String: Any] else { continue }
+                    // Skip non-track types (episodes)
+                    if let type_ = trackObj["type"] as? String, type_ != "track" { continue }
+
+                    guard let id   = trackObj["id"]   as? String,
                           let name = trackObj["name"] as? String,
                           let uri  = trackObj["uri"]  as? String else { continue }
 
@@ -266,8 +328,7 @@ public class SpotifyManager: MediaServiceProtocol {
                         return "Unknown Artist"
                     }()
 
-                    let album: String = (trackObj["album"] as? [String: Any])?["name"] as? String ?? ""
-
+                    let album = (trackObj["album"] as? [String: Any])?["name"] as? String ?? ""
                     let albumArtURL: URL? = {
                         if let albumObj = trackObj["album"] as? [String: Any],
                            let images = albumObj["images"] as? [[String: Any]],
@@ -277,12 +338,13 @@ public class SpotifyManager: MediaServiceProtocol {
                     }()
 
                     let durationMs = trackObj["duration_ms"] as? Int ?? 0
-                    allTracks.append(SpotifyTrack(id: id, title: name, artist: artist, album: album,
-                                                   uri: uri, albumArtURL: albumArtURL, durationMs: durationMs))
+                    allTracks.append(SpotifyTrack(id: id, title: name, artist: artist,
+                                                   album: album, uri: uri,
+                                                   albumArtURL: albumArtURL, durationMs: durationMs))
                 }
+                print("[SpotifyManager] fetchPlaylistTracks: loaded \(allTracks.count) tracks so far")
             }
 
-            // Pagination
             if let next = json["next"] as? String, let nextU = URL(string: next) {
                 nextURL = nextU
             } else {
