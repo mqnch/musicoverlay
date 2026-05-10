@@ -127,6 +127,7 @@ class LocalAuthServer {
     }
 }
 
+@MainActor
 public class SpotifyAuthManager: ObservableObject {
     public static let shared = SpotifyAuthManager()
     
@@ -211,7 +212,7 @@ public class SpotifyAuthManager: ObservableObject {
             }
             let expiresIn = json["expires_in"] as? Double ?? 3600
             UserDefaults.standard.set(now + expiresIn, forKey: expiryKey)
-            DispatchQueue.main.async { self.hasValidToken = true }
+            self.hasValidToken = true
             print("[SpotifyAuthManager] refreshTokenIfNeeded: ✅ token refreshed, expires in \(Int(expiresIn))s")
         } catch {
             print("[SpotifyAuthManager] refreshTokenIfNeeded: network error — \(error)")
@@ -232,12 +233,12 @@ public class SpotifyAuthManager: ObservableObject {
     
     public func startAuthFlow() {
         guard let clientID = getClientID(), !clientID.isEmpty else {
-            DispatchQueue.main.async { self.errorMessage = "No Client ID set" }
+            self.errorMessage = "No Client ID set"
             return
         }
         
         print("[SpotifyAuthManager] startAuthFlow() — clientID=\(clientID)")
-        DispatchQueue.main.async { self.errorMessage = nil }
+        self.errorMessage = nil
         
         // Stop any existing server before starting a new one
         authServer?.stop()
@@ -246,9 +247,11 @@ public class SpotifyAuthManager: ObservableObject {
         authServer = LocalAuthServer()
         authServer?.onCallback = { [weak self] url in
             print("[SpotifyAuthManager] onCallback fired with URL: \(url)")
-            self?.handleCallbackURL(url)
-            self?.authServer?.stop()
-            self?.authServer = nil
+            Task {
+                await self?.handleCallbackURL(url)
+                self?.authServer?.stop()
+                self?.authServer = nil
+            }
         }
         authServer?.start()
         
@@ -281,7 +284,7 @@ public class SpotifyAuthManager: ObservableObject {
         NSWorkspace.shared.open(url)
     }
     
-    public func handleCallbackURL(_ url: URL) {
+    public func handleCallbackURL(_ url: URL) async {
         print("[SpotifyAuthManager] handleCallbackURL: \(url)")
         guard url.path == "/callback" else {
             print("[SpotifyAuthManager] ⚠️ Path '\(url.path)' is not /callback — ignoring")
@@ -295,11 +298,9 @@ public class SpotifyAuthManager: ObservableObject {
         
         if let error = components.queryItems?.first(where: { $0.name == "error" })?.value {
             print("[SpotifyAuthManager] ❌ Auth error from Spotify: \(error)")
-            DispatchQueue.main.async {
-                self.errorMessage = "Auth Error: \(error)"
-                NSApp.activate(ignoringOtherApps: true)
-                WindowManager.shared.showOnboardingWindow()
-            }
+            self.errorMessage = "Auth Error: \(error)"
+            NSApp.activate(ignoringOtherApps: true)
+            WindowManager.shared.showOnboardingWindow()
             return
         }
         
@@ -307,11 +308,9 @@ public class SpotifyAuthManager: ObservableObject {
               let clientID = getClientID() else {
             print("[SpotifyAuthManager] ❌ Missing 'code' param or clientID")
             print("[SpotifyAuthManager]   queryItems: \(components.queryItems ?? [])")
-            DispatchQueue.main.async {
-                self.errorMessage = "Missing code or clientID"
-                NSApp.activate(ignoringOtherApps: true)
-                WindowManager.shared.showOnboardingWindow()
-            }
+            self.errorMessage = "Missing code or clientID"
+            NSApp.activate(ignoringOtherApps: true)
+            WindowManager.shared.showOnboardingWindow()
             return
         }
         
@@ -330,7 +329,6 @@ public class SpotifyAuthManager: ObservableObject {
             URLQueryItem(name: "code_verifier", value: codeVerifier)
         ]
         
-        // Manual form-urlencoded string to ensure correctness
         let bodyString = bodyComponents.queryItems?.compactMap { item in
             guard let value = item.value?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
             return "\(item.name)=\(value)"
@@ -339,78 +337,49 @@ public class SpotifyAuthManager: ObservableObject {
         request.httpBody = bodyString?.data(using: .utf8)
         print("[SpotifyAuthManager] Token request body: \(bodyString ?? "(nil)")")
         
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            if let error = error {
-                print("[SpotifyAuthManager] ❌ Network error: \(error)")
-                DispatchQueue.main.async {
-                    self?.errorMessage = "Network error: \(error.localizedDescription)"
-                    NSApp.activate(ignoringOtherApps: true)
-                    WindowManager.shared.showOnboardingWindow()
-                }
-                return
-            }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
             
             if let httpResponse = response as? HTTPURLResponse {
                 print("[SpotifyAuthManager] Token response HTTP status: \(httpResponse.statusCode)")
             }
             
-            guard let data = data else {
-                print("[SpotifyAuthManager] ❌ No data in token response")
-                DispatchQueue.main.async {
-                    self?.errorMessage = "No data returned"
-                    NSApp.activate(ignoringOtherApps: true)
-                    WindowManager.shared.showOnboardingWindow()
-                }
-                return
-            }
-            
             let rawResponse = String(data: data, encoding: .utf8) ?? "(unreadable)"
             print("[SpotifyAuthManager] Token response body: \(rawResponse)")
             
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
-                    if let error = json["error"] as? String {
-                        let desc = json["error_description"] as? String ?? ""
-                        print("[SpotifyAuthManager] ❌ API error: \(error) — \(desc)")
-                        DispatchQueue.main.async {
-                            self?.errorMessage = "API Error: \(error) - \(desc)"
-                            NSApp.activate(ignoringOtherApps: true)
-                            WindowManager.shared.showOnboardingWindow()
-                        }
-                        return
-                    }
-                    
-                    if let accessToken = json["access_token"] as? String {
-                        print("[SpotifyAuthManager] ✅ Got access token! Saving to keychain.")
-                        KeychainHelper.shared.save(accessToken.data(using: .utf8)!, service: "Spotify", account: "AccessToken")
-                        if let refreshToken = json["refresh_token"] as? String {
-                            KeychainHelper.shared.save(refreshToken.data(using: .utf8)!, service: "Spotify", account: "RefreshToken")
-                            print("[SpotifyAuthManager] ✅ Got refresh token — saved.")
-                        }
-                        DispatchQueue.main.async {
-                            self?.hasValidToken = true
-                            print("[SpotifyAuthManager] hasValidToken → true, surfacing onboarding window")
-                            NSApp.activate(ignoringOtherApps: true)
-                            WindowManager.shared.showOnboardingWindow()
-                        }
-                    } else {
-                        print("[SpotifyAuthManager] ❌ No 'access_token' key in response JSON")
-                        DispatchQueue.main.async {
-                            self?.errorMessage = "No access token in response"
-                            NSApp.activate(ignoringOtherApps: true)
-                            WindowManager.shared.showOnboardingWindow()
-                        }
-                    }
+            if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
+                if let error = json["error"] as? String {
+                    let desc = json["error_description"] as? String ?? ""
+                    print("[SpotifyAuthManager] ❌ API error: \(error) — \(desc)")
+                    self.errorMessage = "API Error: \(error) - \(desc)"
+                    NSApp.activate(ignoringOtherApps: true)
+                    WindowManager.shared.showOnboardingWindow()
+                    return
                 }
-            } catch {
-                print("[SpotifyAuthManager] ❌ JSON parse error: \(error)")
-                DispatchQueue.main.async {
-                    self?.errorMessage = "Failed to parse response"
+                
+                if let accessToken = json["access_token"] as? String {
+                    print("[SpotifyAuthManager] ✅ Got access token! Saving to keychain.")
+                    KeychainHelper.shared.save(accessToken.data(using: .utf8)!, service: "Spotify", account: "AccessToken")
+                    if let refreshToken = json["refresh_token"] as? String {
+                        KeychainHelper.shared.save(refreshToken.data(using: .utf8)!, service: "Spotify", account: "RefreshToken")
+                        print("[SpotifyAuthManager] ✅ Got refresh token — saved.")
+                    }
+                    self.hasValidToken = true
+                    print("[SpotifyAuthManager] hasValidToken → true, surfacing onboarding window")
+                    NSApp.activate(ignoringOtherApps: true)
+                    WindowManager.shared.showOnboardingWindow()
+                } else {
+                    print("[SpotifyAuthManager] ❌ No 'access_token' key in response JSON")
+                    self.errorMessage = "No access token in response"
                     NSApp.activate(ignoringOtherApps: true)
                     WindowManager.shared.showOnboardingWindow()
                 }
             }
+        } catch {
+            print("[SpotifyAuthManager] ❌ Network or JSON error: \(error)")
+            self.errorMessage = "Error: \(error.localizedDescription)"
+            NSApp.activate(ignoringOtherApps: true)
+            WindowManager.shared.showOnboardingWindow()
         }
-        task.resume()
     }
 }

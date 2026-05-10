@@ -179,7 +179,7 @@ public struct OnboardingView: View {
                     }
                     // onChange is guaranteed to fire when the @Published value changes,
                     // unlike onAppear which only fires when a view enters the hierarchy.
-                    .onChange(of: authManager.hasValidToken) { newValue in
+                    .onChange(of: authManager.hasValidToken) { oldValue, newValue in
                         if newValue {
                             print("[OnboardingView] hasValidToken became true — finishing onboarding in 1s")
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {

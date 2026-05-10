@@ -29,7 +29,7 @@ public class AppleMusicManager: MediaServiceProtocol {
         var error: NSDictionary?
         let output = script?.executeAndReturnError(&error)
         if let error = error {
-            print("AppleScript Error: \\(error)")
+            print("AppleScript Error: \(error)")
             return nil
         }
         return output?.stringValue
@@ -87,7 +87,7 @@ public class AppleMusicManager: MediaServiceProtocol {
         request.limit = 50 
         
         var allPlaylists: [Playlist] = []
-        var response = try await request.response()
+        let response = try await request.response()
         
         func mapPlaylist(_ mkPlaylist: MusicKit.Playlist) -> Playlist {
             Playlist(

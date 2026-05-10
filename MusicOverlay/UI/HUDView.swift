@@ -99,7 +99,7 @@ private struct PlaybackControlsView: View {
                         Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(.white)
-                            .offset(x: viewModel.isPlaying ? 0 : 1.5)
+                            .offset(x: viewModel.isPlaying ? 0 : 0, y: viewModel.isPlaying ? 0 : -1.0)
                     }
                     .hoverHighlight()
                 }
@@ -640,7 +640,6 @@ extension RightPanel {
                                 PlaylistTrackRow(track: track, index: index, isSelected: index == viewModel.selectionIndex)
                                     .onTapGesture {
                                         viewModel.playTrack(track)
-                                        WindowManager.shared.toggleHUD()
                                     }
                                     .contentShape(Rectangle())
                             }
@@ -671,7 +670,38 @@ public struct HUDView: View {
         _viewModel = StateObject(wrappedValue: HUDViewModel(stateController: stateController))
     }
 
-    public var body: some View {
+    private var miniPlayerView: some View {
+        HStack(spacing: 12) {
+            if let track = stateController.currentTrack {
+                RemoteImage(url: track.albumArtURL, size: 40, cornerRadius: 8)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(track.title)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    Text(track.artist)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.7))
+                        .lineLimit(1)
+                }
+            } else {
+                Text("Nothing playing")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .frame(width: 240, height: 64)
+        .background(WindowDragArea())
+        .contentShape(Rectangle())
+        .onTapGesture {
+            WindowManager.shared.expandHUD()
+        }
+    }
+
+    private var fullHUDView: some View {
         VStack(spacing: 0) {
             // ── Search bar ──────────────────────────────────────────────
             HStack(spacing: 10) {
@@ -730,24 +760,34 @@ public struct HUDView: View {
             .padding(.bottom, 14)
         }
         .frame(width: 620, height: 420)
+    }
+
+    public var body: some View {
+        ZStack {
+            if viewModel.isMinimized {
+                miniPlayerView
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            } else {
+                fullHUDView
+                    .transition(.opacity.combined(with: .scale(scale: 1.05)))
+            }
+        }
+        .frame(width: viewModel.isMinimized ? 240 : 620, height: viewModel.isMinimized ? 64 : 420)
         .background(Color.clear)
         .onAppear {
-            // Register this view's model with the keyboard monitor
             WindowManager.shared.activeViewModel = viewModel
         }
         .onReceive(NotificationCenter.default.publisher(for: .hudDidShow)) { _ in
-            // No longer auto-focusing search
         }
         .onReceive(timer) { _ in viewModel.refreshNowPlaying() }
         .background(
             ZStack {
-                // This captures drags only on the outer 12px edge of the HUD
-                WindowDragArea()
-                
-                // We mask the center so only the edges are draggable
-                Color.black
-                    .padding(12)
-                    .blendMode(.destinationOut)
+                if !viewModel.isMinimized {
+                    WindowDragArea()
+                    Color.black
+                        .padding(12)
+                        .blendMode(.destinationOut)
+                }
             }
             .compositingGroup()
         )
@@ -756,7 +796,11 @@ public struct HUDView: View {
                 Button("") { viewModel.moveSelectionUp()   }.keyboardShortcut(.upArrow,   modifiers: [])
                 Button("") { viewModel.moveSelectionDown() }.keyboardShortcut(.downArrow, modifiers: [])
                 Button("") {
-                    if viewModel.selectedPlaylist != nil { viewModel.closePlaylist() }
+                    if viewModel.selectedPlaylist != nil { 
+                        viewModel.closePlaylist() 
+                    } else {
+                        WindowManager.shared.minimizeHUD()
+                    }
                 }.keyboardShortcut(.escape, modifiers: [])
             }
             .opacity(0)

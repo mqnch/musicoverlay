@@ -16,6 +16,7 @@ struct MusicOverlayApp: App {
     }
 }
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -37,7 +38,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func handleGetURLEvent(event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {
         if let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
            let url = URL(string: urlString) {
-            SpotifyAuthManager.shared.handleCallbackURL(url)
+            Task {
+                await SpotifyAuthManager.shared.handleCallbackURL(url)
+            }
         }
     }
 }

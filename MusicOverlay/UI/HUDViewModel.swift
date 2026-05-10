@@ -11,6 +11,7 @@ public class HUDViewModel: ObservableObject {
     }
     @Published public var searchResults: [SearchResult] = []
     @Published public var isSearching: Bool = false
+    @Published public var isMinimized: Bool = false
 
     // MARK: - Playlist drill-down
 
