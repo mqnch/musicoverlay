@@ -52,8 +52,11 @@ public class WindowManager: NSObject {
         visualEffect.wantsLayer = true
         visualEffect.layer?.cornerRadius = 24.0
         visualEffect.layer?.masksToBounds = true
+        visualEffect.maskImage = .maskImage(cornerRadius: 24.0)
         visualEffect.layer?.borderWidth = 0.5
         visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
+        
+        
         
         let hudView = HUDView(stateController: StateController.shared)
             .environmentObject(StateController.shared)
@@ -95,7 +98,7 @@ public class WindowManager: NSObject {
         guard let panel = hudPanel, panel.isVisible == true else { return event }
 
         if event.keyCode == 53 {
-            hideHUD()
+            actuallyHideHUD()
             return nil
         }
 
@@ -172,9 +175,9 @@ public class WindowManager: NSObject {
     }
 
     public func showHUD() {
-        guard let panel = hudPanel, let vm = activeViewModel else { return }
+        guard let panel = hudPanel else { return }
         
-        vm.isMinimized = false
+        activeViewModel?.isMinimized = false
         panel.alphaValue = 0.0
         
         let screen = NSScreen.main ?? NSScreen.screens[0]
@@ -190,6 +193,7 @@ public class WindowManager: NSObject {
         
         if let visualEffect = panel.contentView as? NSVisualEffectView {
             visualEffect.layer?.cornerRadius = 24.0
+            visualEffect.maskImage = .maskImage(cornerRadius: 24.0)
         }
 
         NSApp.activate(ignoringOtherApps: true)
@@ -205,7 +209,7 @@ public class WindowManager: NSObject {
     }
     
     public func hideHUD() {
-        actuallyHideHUD()
+        minimizeHUD()
     }
 
     public func toggleHUD() {
@@ -253,7 +257,7 @@ public class WindowManager: NSObject {
                 
                 if let visualEffect = panel.contentView as? NSVisualEffectView {
                     visualEffect.layer?.cornerRadius = 16.0
-                    visualEffect.maskImage = .maskImage(cornerRadius: 16.0, size: self.miniSize)
+                    visualEffect.maskImage = .maskImage(cornerRadius: 16.0)
                 }
                 
                 NSAnimationContext.runAnimationGroup { context in
@@ -288,7 +292,7 @@ public class WindowManager: NSObject {
                 
                 if let visualEffect = panel.contentView as? NSVisualEffectView {
                     visualEffect.layer?.cornerRadius = 24.0
-                    visualEffect.maskImage = .maskImage(cornerRadius: 24.0, size: self.fullSize)
+                    visualEffect.maskImage = .maskImage(cornerRadius: 24.0)
                 }
                 
                 NSAnimationContext.runAnimationGroup { context in
@@ -390,12 +394,16 @@ extension Notification.Name {
 }
 
 extension NSImage {
-    static func maskImage(cornerRadius: CGFloat, size: NSSize) -> NSImage {
+    static func maskImage(cornerRadius: CGFloat) -> NSImage {
+        let edge = cornerRadius * 2 + 1
+        let size = NSSize(width: edge, height: edge)
         let image = NSImage(size: size, flipped: false) { rect in
             NSColor.black.set()
             NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius).fill()
             return true
         }
+        image.capInsets = NSEdgeInsets(top: cornerRadius, left: cornerRadius, bottom: cornerRadius, right: cornerRadius)
+        image.resizingMode = .stretch
         return image
     }
 }

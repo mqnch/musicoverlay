@@ -30,6 +30,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         if StateController.shared.onboardingCompleted {
             StateController.shared.initializeService()
+            WindowManager.shared.showHUD()
         } else {
             WindowManager.shared.showOnboardingWindow()
         }
