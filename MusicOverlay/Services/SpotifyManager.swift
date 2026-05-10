@@ -132,7 +132,7 @@ public class SpotifyManager: MediaServiceProtocol {
             volume: volume,
             isPlaying: isPlaying,
             isShuffled: isShuffled,
-            repeatMode: isRepeating ? .context : .off // basic mapping
+            repeatMode: isRepeating ? (lastSetRepeatMode == .track ? .track : .context) : .off
         )
     }
 
@@ -187,9 +187,12 @@ public class SpotifyManager: MediaServiceProtocol {
         _ = executeDynamicAppleScript("tell application \"Spotify\" to set shuffling to \(on ? "true" : "false")")
     }
 
-    /// Uses the Spotify Web API for 3-state repeat (off / context / track).
-    /// Falls back to AppleScript boolean for on/off.
+    /// Precise repeat state (off / context / track) as AppleScript only provides boolean.
+    private var lastSetRepeatMode: RepeatMode = .off
+
     public func setRepeat(_ mode: RepeatMode) {
+        lastSetRepeatMode = mode
+        
         // AppleScript: boolean on/off
         let boolVal = mode.isActive ? "true" : "false"
         _ = executeDynamicAppleScript("tell application \"Spotify\" to set repeating to \(boolVal)")

@@ -622,7 +622,7 @@ extension RightPanel {
                 Spacer()
                 ProgressView().scaleEffect(0.8)
                 Spacer()
-            } else if viewModel.playlistTracks.isEmpty {
+            } else if viewModel.displayedPlaylistTracks.isEmpty {
                 Spacer()
                 Text("No tracks found")
                     .font(.system(size: 13))
@@ -636,7 +636,7 @@ extension RightPanel {
                         externalScrollOffset: $playlistDragOffset
                     ) {
                         LazyVStack(spacing: 2) {
-                            ForEach(Array(viewModel.playlistTracks.enumerated()), id: \.element.id) { index, track in
+                            ForEach(Array(viewModel.displayedPlaylistTracks.enumerated()), id: \.element.id) { index, track in
                                 PlaylistTrackRow(track: track, index: index, isSelected: index == viewModel.selectionIndex)
                                     .onTapGesture {
                                         viewModel.playTrack(track)
@@ -683,7 +683,7 @@ public struct HUDView: View {
                         .foregroundColor(.white.opacity(0.4))
                 }
 
-                TextField("Search playlists…", text: $viewModel.searchText)
+                TextField("Search playlists/songs…", text: $viewModel.searchText)
                     .textFieldStyle(.plain)
                     .focused($isSearchFocused)
                     .font(.system(size: 17, weight: .medium))

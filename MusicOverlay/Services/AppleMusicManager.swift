@@ -128,14 +128,17 @@ public class AppleMusicManager: MediaServiceProtocol {
 
     public func setShuffle(_ on: Bool) {
         let value = on ? "true" : "false"
-        var error: NSDictionary?
-        NSAppleScript(source: "tell application \"Music\" to set shuffle enabled to \(value)")?.executeAndReturnError(&error)
+        _ = NSAppleScript(source: "tell application \"Music\" to set shuffle enabled to \(value)")?.executeAndReturnError(nil)
     }
 
     public func setRepeat(_ mode: RepeatMode) {
-        let value = mode.isActive ? "1" : "0"
-        var error: NSDictionary?
-        NSAppleScript(source: "tell application \"Music\" to set song repeat to \(value)")?.executeAndReturnError(&error)
+        let value: String
+        switch mode {
+        case .off:     value = "off"
+        case .track:   value = "one"
+        case .context: value = "all"
+        }
+        _ = NSAppleScript(source: "tell application \"Music\" to set song repeat to \(value)")?.executeAndReturnError(nil)
     }
 
     public func setVolume(_ volume: Double) {

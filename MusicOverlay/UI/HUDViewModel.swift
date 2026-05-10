@@ -69,6 +69,15 @@ public class HUDViewModel: ObservableObject {
 
     public var displayedResults: [SearchResult] { searchResults }
 
+    public var displayedPlaylistTracks: [SpotifyTrack] {
+        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        if query.isEmpty { return playlistTracks }
+        return playlistTracks.filter { track in
+            track.title.lowercased().contains(query) ||
+            track.artist.lowercased().contains(query)
+        }
+    }
+
     // MARK: - Search
 
     private func onSearchTextChanged() {
@@ -153,6 +162,7 @@ public class HUDViewModel: ObservableObject {
     public func openPlaylist(_ playlist: Playlist) {
         selectedPlaylist = playlist
         selectionIndex = 0
+        searchText = ""
         
         if let cached = playlistTracksCache[playlist.id] {
             playlistTracks = cached
@@ -181,6 +191,7 @@ public class HUDViewModel: ObservableObject {
         selectedPlaylist = nil
         playlistTracks = []
         selectionIndex = 0
+        searchText = ""
     }
 
     // MARK: - Playback actions
@@ -228,11 +239,13 @@ public class HUDViewModel: ObservableObject {
     public func toggleShuffle() {
         isShuffled.toggle()
         stateController.activeService?.setShuffle(isShuffled)
+        lastToggleTime = Date()
     }
 
     public func cycleRepeat() {
         repeatMode = repeatMode.next()
         stateController.activeService?.setRepeat(repeatMode)
+        lastToggleTime = Date()
     }
 
     // MARK: - Volume & seeking
@@ -259,14 +272,14 @@ public class HUDViewModel: ObservableObject {
     }
     
     public func moveSelectionDown() {
-        let count = selectedPlaylist != nil ? playlistTracks.count : displayedResults.count
+        let count = selectedPlaylist != nil ? displayedPlaylistTracks.count : displayedResults.count
         if selectionIndex < count - 1 { selectionIndex += 1 }
     }
     
     public func activateSelection() {
         if let _ = selectedPlaylist {
-            guard selectionIndex < playlistTracks.count else { return }
-            playTrack(playlistTracks[selectionIndex])
+            guard selectionIndex < displayedPlaylistTracks.count else { return }
+            playTrack(displayedPlaylistTracks[selectionIndex])
         } else {
             guard !displayedResults.isEmpty, selectionIndex < displayedResults.count else { return }
             playResult(displayedResults[selectionIndex])
