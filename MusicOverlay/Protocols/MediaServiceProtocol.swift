@@ -1,6 +1,7 @@
 import Foundation
 
 public protocol MediaServiceProtocol {
+    var name: String { get }
     // MARK: - Basic playback
     func play()
     func pause()

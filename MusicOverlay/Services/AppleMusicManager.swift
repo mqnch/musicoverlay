@@ -2,6 +2,7 @@ import Foundation
 import MusicKit
 
 public class AppleMusicManager: MediaServiceProtocol {
+    public var name: String { "Apple Music" }
     
     public init() {}
     

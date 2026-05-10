@@ -18,6 +18,7 @@ public class WindowManager: NSObject {
     // Double-tap state
     private var lastKeyPressTime: Date = .distantPast
     private var lastKeyCode: UInt16 = 0
+    private var lastShowTime: Date = .distantPast
     private var pendingAction: DispatchWorkItem?
 
     /// Registered by HUDView so the keyboard monitor can route commands.
@@ -84,7 +85,29 @@ public class WindowManager: NSObject {
             queue: .main
         ) { _ in
             Task { @MainActor in
-                WindowManager.shared.actuallyHideHUD()
+                guard let vm = WindowManager.shared.activeViewModel else { return }
+                if vm.isMinimized { return }
+                
+                let timeSinceShow = Date().timeIntervalSince(WindowManager.shared.lastShowTime)
+                if timeSinceShow > 0.5 {
+                    if vm.isMiniPlayerEnabled {
+                        WindowManager.shared.minimizeHUD()
+                    } else {
+                        WindowManager.shared.actuallyHideHUD()
+                    }
+                } else {
+                    // Fallback: If clicked away during the grace period, schedule a minimize/hide
+                    // for when the period expires, provided the app is still inactive.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        if !NSApp.isActive, let vm = WindowManager.shared.activeViewModel, !vm.isMinimized {
+                            if vm.isMiniPlayerEnabled {
+                                WindowManager.shared.minimizeHUD()
+                            } else {
+                                WindowManager.shared.actuallyHideHUD()
+                            }
+                        }
+                    }
+                }
             }
         }
         
@@ -177,6 +200,7 @@ public class WindowManager: NSObject {
     public func showHUD() {
         guard let panel = hudPanel else { return }
         
+        lastShowTime = Date()
         activeViewModel?.isMinimized = false
         panel.alphaValue = 0.0
         
@@ -209,7 +233,11 @@ public class WindowManager: NSObject {
     }
     
     public func hideHUD() {
-        minimizeHUD()
+        if let vm = activeViewModel, !vm.isMiniPlayerEnabled {
+            actuallyHideHUD()
+        } else {
+            minimizeHUD()
+        }
     }
 
     public func toggleHUD() {
@@ -219,7 +247,11 @@ public class WindowManager: NSObject {
         } else if vm.isMinimized {
             expandHUD()
         } else {
-            minimizeHUD()
+            if vm.isMiniPlayerEnabled {
+                minimizeHUD()
+            } else {
+                actuallyHideHUD()
+            }
         }
     }
 
@@ -271,6 +303,7 @@ public class WindowManager: NSObject {
     public func expandHUD() {
         guard let panel = hudPanel, let vm = activeViewModel, vm.isMinimized else { return }
 
+        lastShowTime = Date()
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.2
             panel.animator().alphaValue = 0.0

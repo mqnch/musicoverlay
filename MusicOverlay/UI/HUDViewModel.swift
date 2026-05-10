@@ -12,6 +12,9 @@ public class HUDViewModel: ObservableObject {
     @Published public var searchResults: [SearchResult] = []
     @Published public var isSearching: Bool = false
     @Published public var isMinimized: Bool = false
+    @Published public var showSettings: Bool = false
+    @Published public var isMiniPlayerEnabled: Bool = true
+    @Published public var hotkeyModifier: String = "Shift" // "Shift", "Control", "Option"
 
     // MARK: - Playlist drill-down
 
@@ -45,6 +48,8 @@ public class HUDViewModel: ObservableObject {
     private var playlistTracksCache: [String: [SpotifyTrack]] = [:]
     
     private let lastPlayedKey = "HUDViewModel.LastPlayed"
+    private let miniPlayerEnabledKey = "HUDViewModel.IsMiniPlayerEnabled"
+    private let hotkeyModifierKey = "HUDViewModel.HotkeyModifier"
     private var lastPlayedDates: [String: Date] = [:]
 
     /// Timestamp of the last user-initiated play/pause toggle.
@@ -57,6 +62,14 @@ public class HUDViewModel: ObservableObject {
         if let dict = UserDefaults.standard.dictionary(forKey: lastPlayedKey) as? [String: Date] {
             self.lastPlayedDates = dict
         }
+        
+        // Load settings
+        if UserDefaults.standard.object(forKey: miniPlayerEnabledKey) == nil {
+            UserDefaults.standard.set(true, forKey: miniPlayerEnabledKey)
+        }
+        self.isMiniPlayerEnabled = UserDefaults.standard.bool(forKey: miniPlayerEnabledKey)
+        
+        self.hotkeyModifier = UserDefaults.standard.string(forKey: hotkeyModifierKey) ?? "Shift"
 
         stateController.$activeService
             .receive(on: DispatchQueue.main)
@@ -193,6 +206,49 @@ public class HUDViewModel: ObservableObject {
         playlistTracks = []
         selectionIndex = 0
         searchText = ""
+    }
+
+    public func toggleSettings() {
+        showSettings.toggle()
+        if showSettings {
+            selectedPlaylist = nil
+            searchText = ""
+        }
+    }
+
+    public func toggleMiniPlayer() {
+        isMiniPlayerEnabled.toggle()
+        UserDefaults.standard.set(isMiniPlayerEnabled, forKey: miniPlayerEnabledKey)
+    }
+
+    public func updateHotkeyModifier(_ modifier: String) {
+        hotkeyModifier = modifier
+        UserDefaults.standard.set(modifier, forKey: hotkeyModifierKey)
+        // Refresh the hotkey monitor
+        HotkeyManager.shared.setup()
+    }
+
+    public func clearCache() {
+        cachedPlaylists = []
+        playlistTracksCache = [:]
+        Task { await prefetchPlaylists() }
+    }
+
+    public func logout() {
+        // Clear all credentials and settings
+        UserDefaults.standard.set(false, forKey: "onboardingCompleted")
+        UserDefaults.standard.set("", forKey: "preferredService")
+        
+        KeychainHelper.shared.delete(service: "Spotify", account: "AccessToken")
+        KeychainHelper.shared.delete(service: "Spotify", account: "RefreshToken")
+        
+        // Reset state controller
+        stateController.onboardingCompleted = false
+        stateController.activeService = nil
+        
+        // Hide HUD and show onboarding
+        WindowManager.shared.actuallyHideHUD()
+        WindowManager.shared.showOnboardingWindow()
     }
 
     // MARK: - Playback actions

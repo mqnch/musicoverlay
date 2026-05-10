@@ -1,6 +1,7 @@
 import Foundation
 
 public class SpotifyManager: MediaServiceProtocol {
+    public var name: String { "Spotify" }
 
     public init() {}
 

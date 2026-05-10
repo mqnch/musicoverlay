@@ -474,58 +474,58 @@ private struct CustomScrollbar: View {
     @Binding var dragOffset: CGFloat?
     
     var body: some View {
-        let ratio = metrics.viewportHeight / max(1, metrics.contentHeight)
-        let show = ratio < 1.0 && metrics.contentHeight > 0
-        
-        ZStack(alignment: .top) {
-            // ── Wider hit area ───────────────────────────────────────────
-            // This 16px area captures clicks/drags and prevents them from 
-            // moving the app window.
-            Color.white.opacity(0.001)
-                .frame(width: 16)
-                .contentShape(Rectangle())
-                .onTapGesture { } // Consumes clicks
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            let thumbHeight = max(20, metrics.viewportHeight * ratio)
-                            let thumbRange = metrics.viewportHeight - thumbHeight
-                            let scrollRange = metrics.contentHeight - metrics.viewportHeight
-                            
-                            let deltaY = value.location.y - (thumbHeight / 2)
-                            let newProgress = max(0, min(1, deltaY / max(1, thumbRange)))
-                            dragOffset = newProgress * scrollRange
-                        }
-                        .onEnded { _ in
-                            dragOffset = nil
-                        }
-                )
-
-            // ── Gutter ───────────────────────────────────────────────────
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color.white.opacity(0.05))
-                .frame(width: 4)
-                .padding(.horizontal, 6) // Center in the 16px area
+        GeometryReader { geo in
+            let trackHeight = geo.size.height
+            let ratio = metrics.viewportHeight / max(1, metrics.contentHeight)
+            let show = ratio < 1.0 && metrics.contentHeight > 0
             
-            // ── Thumb ────────────────────────────────────────────────────
-            if show {
-                let thumbHeight = max(20, metrics.viewportHeight * ratio)
-                let trackHeight = metrics.viewportHeight
-                let scrollRange = metrics.contentHeight - metrics.viewportHeight
-                let thumbRange = trackHeight - thumbHeight
-                let progress = metrics.scrollOffset / max(1, scrollRange)
-                let thumbOffset = progress * thumbRange
-                
+            ZStack(alignment: .top) {
+                // ── Wider hit area ───────────────────────────────────────────
+                Color.white.opacity(0.001)
+                    .frame(width: 16)
+                    .contentShape(Rectangle())
+                    .onTapGesture { } 
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let thumbHeight = max(20, trackHeight * ratio)
+                                let thumbRange = trackHeight - thumbHeight
+                                let scrollRange = metrics.contentHeight - metrics.viewportHeight
+                                
+                                let deltaY = value.location.y - (thumbHeight / 2)
+                                let newProgress = max(0, min(1, deltaY / max(1, thumbRange)))
+                                dragOffset = newProgress * scrollRange
+                            }
+                            .onEnded { _ in
+                                dragOffset = nil
+                            }
+                    )
+
+                // ── Gutter ───────────────────────────────────────────────────
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white.opacity(0.3))
-                    .frame(width: 4, height: thumbHeight)
-                    .offset(y: thumbOffset)
-                    .allowsHitTesting(false) // Drag is handled by the 16px background
+                    .fill(Color.white.opacity(0.05))
+                    .frame(width: 4)
+                    .padding(.horizontal, 6)
+                
+                // ── Thumb ────────────────────────────────────────────────────
+                if show {
+                    let thumbHeight = max(20, trackHeight * ratio)
+                    let scrollRange = metrics.contentHeight - metrics.viewportHeight
+                    let thumbRange = trackHeight - thumbHeight
+                    let progress = metrics.scrollOffset / max(1, scrollRange)
+                    let thumbOffset = progress * thumbRange
+                    
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.3))
+                        .frame(width: 4, height: thumbHeight)
+                        .offset(y: thumbOffset)
+                        .allowsHitTesting(false)
+                }
             }
         }
         .frame(width: 16)
-        .opacity(show ? 1 : 0)
-        .animation(.easeInOut(duration: 0.2), value: show)
+        .opacity(metrics.viewportHeight / max(1, metrics.contentHeight) < 1.0 ? 1 : 0)
+        .animation(.easeInOut(duration: 0.2), value: metrics.viewportHeight / max(1, metrics.contentHeight) < 1.0)
     }
 }
 
@@ -656,6 +656,148 @@ extension RightPanel {
     }
 }
 
+// MARK: - Settings View
+
+private struct SettingsView: View {
+    @ObservedObject var viewModel: HUDViewModel
+    @EnvironmentObject var stateController: StateController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Settings")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.bottom, 4)
+
+            VStack(spacing: 16) {
+                // Mini Player Toggle
+                SettingRow(
+                    title: "Enable Mini Player",
+                    description: "Automatically minimize to a small window when inactive or after playing a track.",
+                    isOn: Binding(
+                        get: { viewModel.isMiniPlayerEnabled },
+                        set: { _ in viewModel.toggleMiniPlayer() }
+                    )
+                )
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // Hotkey Customization
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Hotkey Gesture")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                        Text("Double-tap to toggle HUD")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    Spacer()
+                    Menu {
+                        ForEach(["Shift", "Control", "Option", "Command"], id: \.self) { mod in
+                            Button(mod) { viewModel.updateHotkeyModifier(mod) }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(viewModel.hotkeyModifier)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 10))
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                    .menuStyle(.plain)
+                }
+                .padding(.vertical, 4)
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // Service Info & Actions
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Active Service")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                        Text(stateController.activeService?.name ?? "None")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    Spacer()
+                    
+                    HStack(spacing: 10) {
+                        Button(action: { viewModel.clearCache() }) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.white.opacity(0.7))
+                                .padding(10)
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(Circle())
+                                .hoverHighlight()
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clear Cache")
+
+                        Button(action: { viewModel.logout() }) {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.red.opacity(0.7))
+                                .padding(10)
+                                .background(Color.red.opacity(0.15))
+                                .clipShape(Circle())
+                                .hoverHighlight()
+                        }
+                        .buttonStyle(.plain)
+                        .help("Logout")
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            Spacer()
+
+            Text("MusicOverlay v1.0.0")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.2))
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+        .padding(.top, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct SettingRow: View {
+    let title: String
+    let description: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                Text(description)
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.5))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            
+            Spacer()
+            
+            Toggle("", isOn: $isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .scaleEffect(0.8)
+        }
+    }
+}
+
 // MARK: - HUDView
 
 public struct HUDView: View {
@@ -703,61 +845,82 @@ public struct HUDView: View {
 
     private var fullHUDView: some View {
         VStack(spacing: 0) {
-            // ── Search bar ──────────────────────────────────────────────
-            HStack(spacing: 10) {
-                if viewModel.isSearching {
-                    ProgressView().scaleEffect(0.65).frame(width: 16)
-                } else {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.white.opacity(0.4))
-                }
-
-                TextField("Search playlists/songs…", text: $viewModel.searchText)
-                    .textFieldStyle(.plain)
-                    .focused($isSearchFocused)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundColor(.white)
-
-                if !viewModel.searchText.isEmpty {
-                    Button(action: { viewModel.searchText = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.white.opacity(0.3))
-                            .font(.system(size: 14))
+            HStack(spacing: 12) {
+                // ── Search bar ──────────────────────────────────────────────
+                HStack(spacing: 10) {
+                    if viewModel.isSearching {
+                        ProgressView().scaleEffect(0.65).frame(width: 16)
+                    } else {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white.opacity(0.4))
                     }
-                    .buttonStyle(.plain)
+
+                    TextField("Search playlists/songs…", text: $viewModel.searchText)
+                        .textFieldStyle(.plain)
+                        .focused($isSearchFocused)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(.white)
+
+                    if !viewModel.searchText.isEmpty {
+                        Button(action: { viewModel.searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.white.opacity(0.3))
+                                .font(.system(size: 14))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                        )
+                )
+
+                // ── Settings Button ─────────────────────────────────────────
+                Button(action: { viewModel.toggleSettings() }) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(viewModel.showSettings ? accentGreen : .white.opacity(0.6))
+                        .offset(y: -1) // Move up one
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .hoverHighlight()
+                }
+                .buttonStyle(.plain)
+                .help("Settings")
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
-                    )
-            )
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 10)
 
-            // ── Main panels ─────────────────────────────────────────────
-            HStack(alignment: .top, spacing: 0) {
-                NowPlayingPanel(track: stateController.currentTrack, viewModel: viewModel)
-                    .padding(.leading, 16)
-                    .padding(.trailing, 12)
+            // ── Main Content ────────────────────────────────────────────
+            if viewModel.showSettings {
+                SettingsView(viewModel: viewModel)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                HStack(alignment: .top, spacing: 0) {
+                    NowPlayingPanel(track: stateController.currentTrack, viewModel: viewModel)
+                        .padding(.leading, 16)
+                        .padding(.trailing, 12)
 
-                Rectangle()
-                    .fill(Color.white.opacity(0.1))
-                    .frame(width: 0.5)
-                    .padding(.vertical, 12)
+                    Rectangle()
+                        .fill(Color.white.opacity(0.1))
+                        .frame(width: 0.5)
+                        .padding(.vertical, 12)
 
-                RightPanel(viewModel: viewModel)
-                    .padding(.leading, 12)
-                    .padding(.trailing, 8)
+                    RightPanel(viewModel: viewModel)
+                        .padding(.leading, 12)
+                        .padding(.trailing, 8)
+                }
+                .padding(.bottom, 14)
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            .padding(.bottom, 14)
         }
         .frame(width: 620, height: 420)
     }
