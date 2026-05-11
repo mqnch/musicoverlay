@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 public class SpotifyManager: MediaServiceProtocol {
     public var name: String { "Spotify" }
@@ -45,7 +45,12 @@ public class SpotifyManager: MediaServiceProtocol {
 
     // MARK: - Script helpers
 
+    private func isSpotifyRunning() -> Bool {
+        return !NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").isEmpty
+    }
+
     private func executeCompiledScript(_ script: NSAppleScript?) -> String? {
+        guard isSpotifyRunning() else { return nil }
         var error: NSDictionary?
         let output = script?.executeAndReturnError(&error)
         if let error = error {
@@ -56,6 +61,7 @@ public class SpotifyManager: MediaServiceProtocol {
     }
 
     private func executeDynamicAppleScript(_ source: String) -> String? {
+        guard isSpotifyRunning() else { return nil }
         var error: NSDictionary?
         if let script = NSAppleScript(source: source) {
             let output = script.executeAndReturnError(&error)

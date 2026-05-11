@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import AppKit
 import Network
+import Combine
 
 class LocalAuthServer {
     private var listener: NWListener?

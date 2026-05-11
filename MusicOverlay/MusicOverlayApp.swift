@@ -30,7 +30,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         if StateController.shared.onboardingCompleted {
             StateController.shared.initializeService()
-            WindowManager.shared.showHUD()
+            // Delay the first show slightly to let the system settle and avoid focus flicker
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                WindowManager.shared.showHUD()
+            }
         } else {
             WindowManager.shared.showOnboardingWindow()
         }

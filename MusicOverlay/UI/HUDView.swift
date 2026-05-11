@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 private let accentGreen = Color(red: 0.18, green: 0.8, blue: 0.44)
 
@@ -709,7 +710,7 @@ private struct SettingsView: View {
                         .background(Color.white.opacity(0.1))
                         .cornerRadius(8)
                     }
-                    .menuStyle(.plain)
+                    .menuStyle(.button)
                 }
                 .padding(.vertical, 4)
 
@@ -729,16 +730,19 @@ private struct SettingsView: View {
                     
                     HStack(spacing: 10) {
                         Button(action: { viewModel.clearCache() }) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.white.opacity(0.7))
-                                .padding(10)
-                                .background(Color.white.opacity(0.1))
-                                .clipShape(Circle())
-                                .hoverHighlight()
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Clear Cache")
+                            }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(8)
+                            .hoverHighlight(.background)
                         }
                         .buttonStyle(.plain)
-                        .help("Clear Cache")
 
                         Button(action: { viewModel.logout() }) {
                             Image(systemName: "rectangle.portrait.and.arrow.right")

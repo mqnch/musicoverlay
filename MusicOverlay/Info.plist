@@ -6,12 +6,14 @@
 	<true/>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>MusicOverlay needs access to your Apple Music library to display and play your playlists.</string>
+	<key>NSMediaLibraryUsageDescription</key>
+	<string>MusicOverlay needs access to your Apple Music library to display and play your playlists.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>MusicOverlay requires permission to send AppleEvents to the Music app for playback controls.</string>
 	<key>CFBundleExecutable</key>
 	<string>MusicOverlay</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.musicoverlay.app</string>
+	<string>musicoverlay.MusicOverlay</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

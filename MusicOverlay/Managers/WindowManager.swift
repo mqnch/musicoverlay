@@ -19,6 +19,7 @@ public class WindowManager: NSObject {
     private var lastKeyPressTime: Date = .distantPast
     private var lastKeyCode: UInt16 = 0
     private var lastShowTime: Date = .distantPast
+    private var isAutoMinimizeLocked: Bool = false
     private var pendingAction: DispatchWorkItem?
 
     /// Registered by HUDView so the keyboard monitor can route commands.
@@ -86,27 +87,12 @@ public class WindowManager: NSObject {
         ) { _ in
             Task { @MainActor in
                 guard let vm = WindowManager.shared.activeViewModel else { return }
-                if vm.isMinimized { return }
+                if vm.isMinimized || WindowManager.shared.isAutoMinimizeLocked { return }
                 
-                let timeSinceShow = Date().timeIntervalSince(WindowManager.shared.lastShowTime)
-                if timeSinceShow > 0.5 {
-                    if vm.isMiniPlayerEnabled {
-                        WindowManager.shared.minimizeHUD()
-                    } else {
-                        WindowManager.shared.actuallyHideHUD()
-                    }
+                if vm.isMiniPlayerEnabled {
+                    WindowManager.shared.minimizeHUD()
                 } else {
-                    // Fallback: If clicked away during the grace period, schedule a minimize/hide
-                    // for when the period expires, provided the app is still inactive.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        if !NSApp.isActive, let vm = WindowManager.shared.activeViewModel, !vm.isMinimized {
-                            if vm.isMiniPlayerEnabled {
-                                WindowManager.shared.minimizeHUD()
-                            } else {
-                                WindowManager.shared.actuallyHideHUD()
-                            }
-                        }
-                    }
+                    WindowManager.shared.actuallyHideHUD()
                 }
             }
         }
@@ -201,7 +187,13 @@ public class WindowManager: NSObject {
         guard let panel = hudPanel else { return }
         
         lastShowTime = Date()
+        isAutoMinimizeLocked = true
         activeViewModel?.isMinimized = false
+        
+        // Unlock after 5 seconds to be absolutely sure we're past any launch/setup transitions
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+            self?.isAutoMinimizeLocked = false
+        }
         panel.alphaValue = 0.0
         
         let screen = NSScreen.main ?? NSScreen.screens[0]
@@ -259,7 +251,7 @@ public class WindowManager: NSObject {
     private let fullSize = NSSize(width: 620, height: 420)
 
     public func minimizeHUD() {
-        guard let panel = hudPanel, let vm = activeViewModel, !vm.isMinimized else { return }
+        guard let panel = hudPanel, let vm = activeViewModel, !vm.isMinimized, !isAutoMinimizeLocked else { return }
         
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.2
@@ -375,15 +367,15 @@ public class WindowManager: NSObject {
             visualEffect.state = .active
             visualEffect.appearance = NSAppearance(named: .vibrantDark)
             visualEffect.wantsLayer = true
-            visualEffect.layer?.cornerRadius = 24.0
+            visualEffect.layer?.cornerRadius = 16.0
             visualEffect.layer?.masksToBounds = true
             visualEffect.layer?.borderWidth = 0.5
             visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
             
             let rootView = OnboardingView(onClose: { [weak self] in
                 Task { @MainActor in
-                    self?.closeOnboardingWindow()
                     self?.showHUD()
+                    self?.closeOnboardingWindow()
                 }
             })
             .fontDesign(.monospaced)
@@ -402,6 +394,13 @@ public class WindowManager: NSObject {
             ])
             
             window.contentView = visualEffect
+            
+            // Move traffic lights inwards
+            if let closeButton = window.standardWindowButton(.closeButton),
+               let titleBarView = closeButton.superview {
+                titleBarView.setFrameOrigin(NSPoint(x: 8, y: -8))
+            }
+            
             self.onboardingWindow = window
         }
         

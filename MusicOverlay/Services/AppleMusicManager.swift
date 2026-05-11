@@ -1,10 +1,16 @@
-import Foundation
+import AppKit
 import MusicKit
 
 public class AppleMusicManager: MediaServiceProtocol {
     public var name: String { "Apple Music" }
     
     public init() {}
+    
+    // MARK: - Script helpers
+    
+    private func isMusicRunning() -> Bool {
+        return !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty
+    }
     
     // MARK: - Precompiled AppleScripts
     
@@ -27,6 +33,7 @@ public class AppleMusicManager: MediaServiceProtocol {
     """)
     
     private func executeCompiledScript(_ script: NSAppleScript?) -> String? {
+        guard isMusicRunning() else { return nil }
         var error: NSDictionary?
         let output = script?.executeAndReturnError(&error)
         if let error = error {

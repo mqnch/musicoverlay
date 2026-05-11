@@ -50,3 +50,10 @@ Temporary Items
 .apdisk
 
 docs/
+# User-specific
+*.xcuserstate
+
+# Swift PM
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+
+# (Removed docs/ to ensure documentation is committed)

@@ -74,7 +74,8 @@ public class HUDViewModel: ObservableObject {
         stateController.$activeService
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                Task { await self?.prefetchPlaylists() }
+                // Auto clear cache on service switch
+                self?.clearCache()
             }
             .store(in: &cancellables)
     }

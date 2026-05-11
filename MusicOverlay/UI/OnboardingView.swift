@@ -30,7 +30,7 @@ public struct OnboardingView: View {
                     selectedService = "appleMusic"
                 }) {
                     VStack {
-                        if let url = Bundle.module.url(forResource: "apple_music_icon", withExtension: "svg"),
+                        if let url = Bundle.main.url(forResource: "apple_music_icon", withExtension: "svg"),
                            let nsImage = NSImage(contentsOf: url) {
                             Image(nsImage: nsImage)
                                 .resizable()
@@ -62,7 +62,7 @@ public struct OnboardingView: View {
                     selectedService = "spotify"
                 }) {
                     VStack {
-                        if let url = Bundle.module.url(forResource: "spotify_icon", withExtension: "svg"),
+                        if let url = Bundle.main.url(forResource: "spotify_icon", withExtension: "svg"),
                            let nsImage = NSImage(contentsOf: url) {
                             Image(nsImage: nsImage)
                                 .resizable()
@@ -120,14 +120,13 @@ public struct OnboardingView: View {
                     }
                     .frame(maxWidth: 350)
                 } else if selectedService == "spotify" {
-                    VStack(spacing: 6) {
-                        Text("Get an API key from the Spotify Developer Dashboard.")
-                            .font(.headline)
-                            .multilineTextAlignment(.center)
-                        
-                        Link("Open Spotify Developer Dashboard", destination: URL(string: "https://developer.spotify.com/dashboard/")!)
-                            .font(.body)
-                            .foregroundColor(.blue)
+                    VStack(spacing: 8) {
+                        VStack(spacing: 4) {
+                            Text(.init("1. Create an app on the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)"))
+                            
+                            Text("2. Add the Redirect URI below to your app settings:")
+                        }
+                        .multilineTextAlignment(.center)
                         
                         HStack {
                             Text("Redirect URI:")
@@ -189,10 +188,22 @@ public struct OnboardingView: View {
                     }
                 }
             }
-            .frame(height: 160)
+            .frame(height: 180)
+            
+            // Tip Note
+            VStack(spacing: 2) {
+                Text("Tip: Toggle the HUD anytime with **Double-Shift**")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.4))
+                Text("You can change this later in Settings.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.25))
+            }
+            .padding(.top, 5)
         }
-        .padding(30)
-        .frame(width: 600, height: 450)
+        .padding(.vertical, 40)
+        .padding(.horizontal, 30)
+        .frame(width: 600, height: 480)
     }
     
     private func finishOnboarding(with service: String) {
