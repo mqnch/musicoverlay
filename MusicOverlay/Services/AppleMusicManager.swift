@@ -6,20 +6,14 @@ public class AppleMusicManager: MediaServiceProtocol {
     
     public init() {}
     
-    // MARK: - Script helpers
+    // MARK: - AppleScript sources
     
-    private func isMusicRunning() -> Bool {
-        return !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty
-    }
+    private let playSource = "tell application \"Music\" to play"
+    private let pauseSource = "tell application \"Music\" to pause"
+    private let nextSource = "tell application \"Music\" to next track"
+    private let prevSource = "tell application \"Music\" to previous track"
     
-    // MARK: - Precompiled AppleScripts
-    
-    private let playScript = NSAppleScript(source: "tell application \"Music\" to play")
-    private let pauseScript = NSAppleScript(source: "tell application \"Music\" to pause")
-    private let nextScript = NSAppleScript(source: "tell application \"Music\" to next track")
-    private let prevScript = NSAppleScript(source: "tell application \"Music\" to previous track")
-    
-    private let currentTrackScript = NSAppleScript(source: """
+    private let currentTrackSource = """
     tell application "Music"
         if player state is playing then
             set tName to name of current track
@@ -30,39 +24,69 @@ public class AppleMusicManager: MediaServiceProtocol {
         end if
         return ""
     end tell
-    """)
+    """
     
-    private func executeCompiledScript(_ script: NSAppleScript?) -> String? {
-        guard isMusicRunning() else { return nil }
-        var error: NSDictionary?
-        let output = script?.executeAndReturnError(&error)
-        if let error = error {
-            print("AppleScript Error: \(error)")
-            return nil
+    // MARK: - Script execution
+    
+    /// Dedicated serial queue for all AppleScript work so the blocking Apple
+    /// Events IPC never runs on the main thread and `NSAppleScript` instances are
+    /// only ever touched from one consistent thread.
+    private let scriptQueue = DispatchQueue(label: "com.musicoverlay.applemusic.applescript")
+    
+    /// Compiled scripts cache. MUST only be accessed from `scriptQueue`.
+    private var compiledScripts: [String: NSAppleScript] = [:]
+    
+    private func isMusicRunning() -> Bool {
+        return !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty
+    }
+    
+    /// Compiles (and caches) the script for `source`, then executes it. All work
+    /// runs synchronously on `scriptQueue`, so callers should invoke this from a
+    /// background thread to avoid blocking the main thread.
+    @discardableResult
+    private func runScript(_ source: String, cache: Bool = true) -> String? {
+        return scriptQueue.sync {
+            guard isMusicRunning() else { return nil }
+            
+            let script: NSAppleScript
+            if cache, let cached = compiledScripts[source] {
+                script = cached
+            } else {
+                guard let compiled = NSAppleScript(source: source) else { return nil }
+                if cache { compiledScripts[source] = compiled }
+                script = compiled
+            }
+            
+            var error: NSDictionary?
+            let output = script.executeAndReturnError(&error)
+            if let error = error {
+                print("AppleScript Error: \(error)")
+                return nil
+            }
+            return output.stringValue
         }
-        return output?.stringValue
     }
     
     // MARK: - MediaServiceProtocol Implementation
     
     public func play() {
-        _ = executeCompiledScript(playScript)
+        runScript(playSource)
     }
     
     public func pause() {
-        _ = executeCompiledScript(pauseScript)
+        runScript(pauseSource)
     }
     
     public func next() {
-        _ = executeCompiledScript(nextScript)
+        runScript(nextSource)
     }
     
     public func previous() {
-        _ = executeCompiledScript(prevScript)
+        runScript(prevSource)
     }
     
     public func getCurrentTrack() -> TrackInfo? {
-        guard let result = executeCompiledScript(currentTrackScript), !result.isEmpty else {
+        guard let result = runScript(currentTrackSource), !result.isEmpty else {
             return nil
         }
         
@@ -72,8 +96,12 @@ public class AppleMusicManager: MediaServiceProtocol {
         let durationStr = parts[3]
         let duration = TimeInterval(durationStr) ?? 0.0
         
+        // Derive a stable id from track identity so unchanged tracks don't
+        // appear as a new track every poll (which would churn SwiftUI state).
+        let stableID = "\(parts[0])|\(parts[1])|\(parts[2])"
+        
         return TrackInfo(
-            id: UUID().uuidString,
+            id: stableID,
             title: parts[0],
             artist: parts[1],
             album: parts[2],
@@ -124,14 +152,18 @@ public class AppleMusicManager: MediaServiceProtocol {
         print("AppleMusic playTrack requested for URI: \(uri) (context: \(contextUri ?? "none"))")
     }
 
+    public func playLikedSongs(startIndex: Int) {
+        print("AppleMusic playLikedSongs requested at index: \(startIndex)")
+    }
+
     public func search(query: String) async throws -> [SearchResult] {
         // Apple Music search not yet implemented — return empty
         return []
     }
 
-    public func fetchPlaylistTracks(playlistID: String) async throws -> [SpotifyTrack] {
+    public func fetchPlaylistTracks(playlistID: String, offset: Int, limit: Int) async throws -> (tracks: [SpotifyTrack], hasMore: Bool) {
         // Apple Music playlist tracks not yet implemented
-        return []
+        return ([], false)
     }
 
     public func setShuffle(_ on: Bool) {

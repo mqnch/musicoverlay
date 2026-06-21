@@ -16,11 +16,14 @@ public protocol MediaServiceProtocol {
     func search(query: String) async throws -> [SearchResult]
 
     // MARK: - Playlist drill-down
-    func fetchPlaylistTracks(playlistID: String) async throws -> [SpotifyTrack]
+    /// Fetches a window of tracks starting at `offset` (up to `limit`),
+    /// returning whether more tracks remain after this window.
+    func fetchPlaylistTracks(playlistID: String, offset: Int, limit: Int) async throws -> (tracks: [SpotifyTrack], hasMore: Bool)
 
     // MARK: - Playback commands
     func playPlaylist(uri: String)
     func playTrack(uri: String, contextUri: String?)
+    func playLikedSongs(startIndex: Int)
     func setShuffle(_ on: Bool)
     func setRepeat(_ mode: RepeatMode)
 

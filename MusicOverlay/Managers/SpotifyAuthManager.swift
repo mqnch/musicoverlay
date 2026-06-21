@@ -273,7 +273,7 @@ public class SpotifyAuthManager: ObservableObject {
             URLQueryItem(name: "redirect_uri", value: redirectURI),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "code_challenge", value: codeChallenge),
-            URLQueryItem(name: "scope", value: "playlist-read-private playlist-read-collaborative user-modify-playback-state user-read-currently-playing user-read-playback-state")
+            URLQueryItem(name: "scope", value: "playlist-read-private playlist-read-collaborative user-library-read user-modify-playback-state user-read-currently-playing user-read-playback-state")
         ]
         
         guard let url = components.url else {

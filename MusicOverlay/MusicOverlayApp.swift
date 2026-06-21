@@ -20,6 +20,11 @@ struct MusicOverlayApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
+        // Enlarge the shared URL cache so album artwork persists on disk
+        // across launches (raw image bytes), not just in memory.
+        URLCache.shared = URLCache(memoryCapacity: 50 * 1024 * 1024,   // 50 MB RAM
+                                   diskCapacity: 500 * 1024 * 1024)     // 500 MB disk
         
         // Register for custom URL scheme events
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleGetURLEvent(event:withReplyEvent:)), forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))

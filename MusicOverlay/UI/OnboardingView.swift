@@ -16,8 +16,7 @@ public struct OnboardingView: View {
     
     public var body: some View {
         VStack(spacing: 16) {
-            if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
-               let nsImage = NSImage(contentsOf: url) {
+            if let nsImage = BundleImageCache.image(resource: "logo", ext: "png") {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -38,8 +37,7 @@ public struct OnboardingView: View {
                     selectedService = "appleMusic"
                 }) {
                     VStack {
-                        if let url = Bundle.main.url(forResource: "apple_music_icon", withExtension: "svg"),
-                           let nsImage = NSImage(contentsOf: url) {
+                        if let nsImage = BundleImageCache.image(resource: "apple_music_icon", ext: "svg") {
                             Image(nsImage: nsImage)
                                 .resizable()
                                 .interpolation(.high)
@@ -70,8 +68,7 @@ public struct OnboardingView: View {
                     selectedService = "spotify"
                 }) {
                     VStack {
-                        if let url = Bundle.main.url(forResource: "spotify_icon", withExtension: "svg"),
-                           let nsImage = NSImage(contentsOf: url) {
+                        if let nsImage = BundleImageCache.image(resource: "spotify_icon", ext: "svg") {
                             Image(nsImage: nsImage)
                                 .resizable()
                                 .interpolation(.high)

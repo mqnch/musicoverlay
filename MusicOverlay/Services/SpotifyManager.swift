@@ -10,16 +10,16 @@ public class SpotifyManager: MediaServiceProtocol {
     private var cachedPlaylists: [Playlist] = []
     private var cacheExpiration: Date = .distantPast
 
-    // MARK: - Precompiled AppleScripts
+    // MARK: - AppleScript sources
 
-    private let playScript  = NSAppleScript(source: "tell application \"Spotify\" to play")
-    private let pauseScript = NSAppleScript(source: "tell application \"Spotify\" to pause")
-    private let nextScript  = NSAppleScript(source: "tell application \"Spotify\" to next track")
-    private let prevScript  = NSAppleScript(source: "tell application \"Spotify\" to previous track")
+    private let playSource  = "tell application \"Spotify\" to play"
+    private let pauseSource = "tell application \"Spotify\" to pause"
+    private let nextSource  = "tell application \"Spotify\" to next track"
+    private let prevSource  = "tell application \"Spotify\" to previous track"
 
     /// Returns 8 pipe-delimited fields:
     /// title ||| artist ||| album ||| durationSec ||| artworkURL ||| playerPosition ||| soundVolume ||| playerState
-    private let currentTrackScript = NSAppleScript(source: """
+    private let currentTrackSource = """
     tell application "Spotify"
         if player state is playing or player state is paused then
             set tId to id of current track
@@ -41,29 +41,40 @@ public class SpotifyManager: MediaServiceProtocol {
         end if
         return ""
     end tell
-    """)
+    """
 
-    // MARK: - Script helpers
+    // MARK: - Script execution
+
+    /// Dedicated serial queue for all AppleScript work so the blocking Apple
+    /// Events IPC never runs on the main thread and `NSAppleScript` instances are
+    /// only ever touched from one consistent thread.
+    private let scriptQueue = DispatchQueue(label: "com.musicoverlay.spotify.applescript")
+
+    /// Compiled scripts cache. MUST only be accessed from `scriptQueue`.
+    private var compiledScripts: [String: NSAppleScript] = [:]
 
     private func isSpotifyRunning() -> Bool {
         return !NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").isEmpty
     }
 
-    private func executeCompiledScript(_ script: NSAppleScript?) -> String? {
-        guard isSpotifyRunning() else { return nil }
-        var error: NSDictionary?
-        let output = script?.executeAndReturnError(&error)
-        if let error = error {
-            print("[SpotifyManager] AppleScript error: \(error)")
-            return nil
-        }
-        return output?.stringValue
-    }
+    /// Compiles (and caches) the script for `source`, then executes it. All work
+    /// runs synchronously on `scriptQueue`, so callers should invoke this from a
+    /// background thread to avoid blocking the main thread.
+    @discardableResult
+    private func runScript(_ source: String, cache: Bool = true) -> String? {
+        return scriptQueue.sync {
+            guard isSpotifyRunning() else { return nil }
 
-    private func executeDynamicAppleScript(_ source: String) -> String? {
-        guard isSpotifyRunning() else { return nil }
-        var error: NSDictionary?
-        if let script = NSAppleScript(source: source) {
+            let script: NSAppleScript
+            if cache, let cached = compiledScripts[source] {
+                script = cached
+            } else {
+                guard let compiled = NSAppleScript(source: source) else { return nil }
+                if cache { compiledScripts[source] = compiled }
+                script = compiled
+            }
+
+            var error: NSDictionary?
             let output = script.executeAndReturnError(&error)
             if let error = error {
                 print("[SpotifyManager] AppleScript error: \(error)")
@@ -71,7 +82,6 @@ public class SpotifyManager: MediaServiceProtocol {
             }
             return output.stringValue
         }
-        return nil
     }
 
     // MARK: - Token helper
@@ -80,6 +90,22 @@ public class SpotifyManager: MediaServiceProtocol {
         guard let data = KeychainHelper.shared.read(service: "Spotify", account: "AccessToken"),
               let token = String(data: data, encoding: .utf8) else { return nil }
         return token
+    }
+
+    private var cachedUserID: String?
+
+    /// Fetches and caches the current Spotify user ID (needed to build the
+    /// Liked Songs collection context URI `spotify:user:{id}:collection`).
+    private func currentUserID() async -> String? {
+        if let id = cachedUserID { return id }
+        guard let url = URL(string: "https://api.spotify.com/v1/me"),
+              let request = authorizedRequest(url: url) else { return nil }
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = json["id"] as? String else { return nil }
+        cachedUserID = id
+        return id
     }
 
     private func authorizedRequest(url: URL, method: String = "GET") -> URLRequest? {
@@ -93,23 +119,23 @@ public class SpotifyManager: MediaServiceProtocol {
     // MARK: - MediaServiceProtocol — Basic playback
 
     public func play() {
-        _ = executeCompiledScript(playScript)
+        runScript(playSource)
     }
 
     public func pause() {
-        _ = executeCompiledScript(pauseScript)
+        runScript(pauseSource)
     }
 
     public func next() {
-        _ = executeCompiledScript(nextScript)
+        runScript(nextSource)
     }
 
     public func previous() {
-        _ = executeCompiledScript(prevScript)
+        runScript(prevSource)
     }
 
     public func getCurrentTrack() -> TrackInfo? {
-        guard let result = executeCompiledScript(currentTrackScript), !result.isEmpty else { return nil }
+        guard let result = runScript(currentTrackSource), !result.isEmpty else { return nil }
         let parts = result.components(separatedBy: "|||")
         guard parts.count == 11 else {
             print("[SpotifyManager] getCurrentTrack: unexpected field count \(parts.count): \(result)")
@@ -168,22 +194,45 @@ public class SpotifyManager: MediaServiceProtocol {
         Task {
             await SpotifyAuthManager.shared.refreshTokenIfNeeded()
             do {
-                try await performPlay(uri: uri, contextUri: contextUri, retryWithTransfer: true)
+                let offset: [String: Any]? = contextUri != nil ? ["uri": uri] : nil
+                try await performPlay(uri: uri, contextUri: contextUri, offset: offset, retryWithTransfer: true)
             } catch {
                 print("[SpotifyManager] playTrack failed: \(error)")
             }
         }
     }
 
-    private func performPlay(uri: String, contextUri: String?, retryWithTransfer: Bool) async throws {
+    /// Plays the user's Liked Songs as a real context starting at `startIndex`,
+    /// so Spotify advances through the collection (respecting shuffle) instead
+    /// of looping a single track.
+    public func playLikedSongs(startIndex: Int) {
+        Task {
+            await SpotifyAuthManager.shared.refreshTokenIfNeeded()
+            guard let uid = await currentUserID() else {
+                print("[SpotifyManager] playLikedSongs: could not resolve user ID")
+                return
+            }
+            let contextUri = "spotify:user:\(uid):collection"
+            do {
+                try await performPlay(uri: nil,
+                                      contextUri: contextUri,
+                                      offset: ["position": startIndex],
+                                      retryWithTransfer: true)
+            } catch {
+                print("[SpotifyManager] playLikedSongs failed: \(error)")
+            }
+        }
+    }
+
+    private func performPlay(uri: String?, contextUri: String?, offset: [String: Any]?, retryWithTransfer: Bool) async throws {
         guard let url = URL(string: "https://api.spotify.com/v1/me/player/play"),
               var request = authorizedRequest(url: url, method: "PUT") else { return }
         
         var body: [String: Any] = [:]
         if let context = contextUri {
             body["context_uri"] = context
-            body["offset"] = ["uri": uri]
-        } else {
+            if let offset = offset { body["offset"] = offset }
+        } else if let uri = uri {
             body["uris"] = [uri]
         }
         
@@ -198,16 +247,16 @@ public class SpotifyManager: MediaServiceProtocol {
             if await transferPlaybackToAvailableDevice() {
                 // Wait briefly for transfer to propagate
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                try await performPlay(uri: uri, contextUri: contextUri, retryWithTransfer: false)
+                try await performPlay(uri: uri, contextUri: contextUri, offset: offset, retryWithTransfer: false)
             } else {
                 print("[SpotifyManager] No available devices for transfer. Falling back to AppleScript.")
-                playURIViaAppleScript(uri: uri, contextUri: contextUri)
+                if let uri = uri { playURIViaAppleScript(uri: uri, contextUri: contextUri) }
             }
         } else if http.statusCode != 204 && http.statusCode != 200 {
             let errorBody = String(data: data, encoding: .utf8) ?? ""
             print("[SpotifyManager] playTrack HTTP \(http.statusCode): \(errorBody)")
             // If all Web API attempts fail, try AppleScript as a final effort
-            if retryWithTransfer {
+            if retryWithTransfer, let uri = uri {
                 playURIViaAppleScript(uri: uri, contextUri: contextUri)
             }
         }
@@ -242,11 +291,11 @@ public class SpotifyManager: MediaServiceProtocol {
         } else {
             script = "tell application \"Spotify\" to play track \"\(uri)\""
         }
-        _ = executeDynamicAppleScript(script)
+        runScript(script, cache: false)
     }
 
     public func setShuffle(_ on: Bool) {
-        _ = executeDynamicAppleScript("tell application \"Spotify\" to set shuffling to \(on ? "true" : "false")")
+        runScript("tell application \"Spotify\" to set shuffling to \(on ? "true" : "false")", cache: false)
     }
 
     /// Precise repeat state (off / context / track) as AppleScript only provides boolean.
@@ -257,7 +306,7 @@ public class SpotifyManager: MediaServiceProtocol {
         
         // AppleScript: boolean on/off
         let boolVal = mode.isActive ? "true" : "false"
-        _ = executeDynamicAppleScript("tell application \"Spotify\" to set repeating to \(boolVal)")
+        runScript("tell application \"Spotify\" to set repeating to \(boolVal)", cache: false)
 
         // Web API: precise 3-state (requires user-modify-playback-state scope)
         let state: String
@@ -286,11 +335,11 @@ public class SpotifyManager: MediaServiceProtocol {
 
     public func setVolume(_ volume: Double) {
         let clamped = Int(max(0, min(100, volume)))
-        _ = executeDynamicAppleScript("tell application \"Spotify\" to set sound volume to \(clamped)")
+        runScript("tell application \"Spotify\" to set sound volume to \(clamped)", cache: false)
     }
 
     public func seekTo(_ position: TimeInterval) {
-        _ = executeDynamicAppleScript("tell application \"Spotify\" to set player position to \(position)")
+        runScript("tell application \"Spotify\" to set player position to \(position)", cache: false)
     }
 
     // MARK: - MediaServiceProtocol — Playlist fetching
@@ -342,9 +391,31 @@ public class SpotifyManager: MediaServiceProtocol {
             }
         }
 
+        // Prepend the synthetic "Liked Songs" pseudo-playlist at the top.
+        let likedTotal = try? await fetchLikedSongsTotal()
+        let likedSongs = Playlist(id: Playlist.likedSongsID,
+                                  name: "Liked Songs",
+                                  uri: "",
+                                  imageURL: nil,
+                                  trackCount: likedTotal)
+        allPlaylists.insert(likedSongs, at: 0)
+
         cachedPlaylists = allPlaylists
         cacheExpiration = Date().addingTimeInterval(300)
         return allPlaylists
+    }
+
+    /// Lightweight call to read the total number of saved (liked) tracks.
+    private func fetchLikedSongsTotal() async throws -> Int? {
+        guard let url = URL(string: "https://api.spotify.com/v1/me/tracks?limit=1"),
+              let request = authorizedRequest(url: url) else { return nil }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return json["total"] as? Int
     }
 
     // MARK: - MediaServiceProtocol — Search
@@ -430,18 +501,37 @@ public class SpotifyManager: MediaServiceProtocol {
 
     // MARK: - MediaServiceProtocol — Playlist tracks
 
-    public func fetchPlaylistTracks(playlistID: String) async throws -> [SpotifyTrack] {
-        // Refresh token if expired before making any API calls
+    /// Spotify's per-request maximum for the playlist-items / saved-tracks endpoints.
+    private static let apiPageSize = 50
+
+    /// Fetches a window of `limit` tracks starting at `offset`. Internally issues
+    /// as many 50-item API calls as needed to fill the window, so the UI can load
+    /// large playlists in pages instead of all at once.
+    public func fetchPlaylistTracks(playlistID: String, offset: Int, limit: Int) async throws -> (tracks: [SpotifyTrack], hasMore: Bool) {
         await SpotifyAuthManager.shared.refreshTokenIfNeeded()
 
-        var allTracks: [SpotifyTrack] = []
-        var nextURL: URL? = URL(string: "https://api.spotify.com/v1/playlists/\(playlistID)/items?limit=50")
+        let isLikedSongs = playlistID == Playlist.likedSongsID
+        let base = isLikedSongs
+            ? "https://api.spotify.com/v1/me/tracks"
+            : "https://api.spotify.com/v1/playlists/\(playlistID)/items"
 
-        while let url = nextURL {
-            guard let request = authorizedRequest(url: url) else {
+        var collected: [SpotifyTrack] = []
+        var currentOffset = offset
+        var total = Int.max
+
+        while collected.count < limit {
+            let pageLimit = min(SpotifyManager.apiPageSize, limit - collected.count)
+
+            guard var components = URLComponents(string: base) else { break }
+            components.queryItems = [
+                URLQueryItem(name: "limit",  value: "\(pageLimit)"),
+                URLQueryItem(name: "offset", value: "\(currentOffset)")
+            ]
+            guard let url = components.url, let request = authorizedRequest(url: url) else {
                 print("[SpotifyManager] fetchPlaylistTracks: no access token")
                 break
             }
+
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { break }
             guard http.statusCode == 200 else {
@@ -451,50 +541,55 @@ public class SpotifyManager: MediaServiceProtocol {
             }
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { break }
 
-            if let items = json["items"] as? [[String: Any]] {
-                for item in items {
-                    // Reverting to 'item' as primary since it worked for the user, 
-                    // but adding 'track' as fallback for standard API responses.
-                    guard let trackObj = (item["item"] as? [String: Any]) ?? (item["track"] as? [String: Any]) else { continue }
-                    
-                    let type = trackObj["type"] as? String ?? "unknown"
-                    if type != "track" && type != "episode" { continue }
+            total = json["total"] as? Int ?? total
+            let items = json["items"] as? [[String: Any]] ?? []
+            if items.isEmpty { break }
 
-                    guard let id   = trackObj["id"]   as? String,
-                          let name = trackObj["name"] as? String,
-                          let uri  = trackObj["uri"]  as? String else { continue }
-
-                    let artist: String = {
-                        if let artists = trackObj["artists"] as? [[String: Any]],
-                           let first = artists.first,
-                           let n = first["name"] as? String { return n }
-                        return "Unknown Artist"
-                    }()
-
-                    let album = (trackObj["album"] as? [String: Any])?["name"] as? String ?? ""
-                    let albumArtURL: URL? = {
-                        if let albumObj = trackObj["album"] as? [String: Any],
-                           let images = albumObj["images"] as? [[String: Any]],
-                           let last = images.last,
-                           let urlStr = last["url"] as? String { return URL(string: urlStr) }
-                        return nil
-                    }()
-
-                    let durationMs = trackObj["duration_ms"] as? Int ?? 0
-                    allTracks.append(SpotifyTrack(id: id, title: name, artist: artist,
-                                                   album: album, uri: uri,
-                                                   albumArtURL: albumArtURL, durationMs: durationMs))
-                }
-                print("[SpotifyManager] fetchPlaylistTracks: loaded \(allTracks.count) tracks so far")
+            for item in items {
+                // Saved-tracks use the "track" key; playlist items use "item" here.
+                guard let trackObj = (item["item"] as? [String: Any]) ?? (item["track"] as? [String: Any]),
+                      let track = parseTrack(trackObj) else { continue }
+                collected.append(track)
             }
 
-            if let next = json["next"] as? String, let nextU = URL(string: next) {
-                nextURL = nextU
-            } else {
-                nextURL = nil
-            }
+            currentOffset += items.count
+            // Reached the end of the collection.
+            if items.count < pageLimit { break }
         }
 
-        return allTracks
+        let hasMore = currentOffset < total
+        print("[SpotifyManager] fetchPlaylistTracks: loaded \(collected.count) (offset \(offset)), hasMore=\(hasMore)")
+        return (collected, hasMore)
+    }
+
+    /// Parses a single Spotify track/episode JSON object into a `SpotifyTrack`.
+    private func parseTrack(_ trackObj: [String: Any]) -> SpotifyTrack? {
+        let type = trackObj["type"] as? String ?? "unknown"
+        if type != "track" && type != "episode" { return nil }
+
+        guard let id   = trackObj["id"]   as? String,
+              let name = trackObj["name"] as? String,
+              let uri  = trackObj["uri"]  as? String else { return nil }
+
+        let artist: String = {
+            if let artists = trackObj["artists"] as? [[String: Any]],
+               let first = artists.first,
+               let n = first["name"] as? String { return n }
+            return "Unknown Artist"
+        }()
+
+        let album = (trackObj["album"] as? [String: Any])?["name"] as? String ?? ""
+        let albumArtURL: URL? = {
+            if let albumObj = trackObj["album"] as? [String: Any],
+               let images = albumObj["images"] as? [[String: Any]],
+               let last = images.last,
+               let urlStr = last["url"] as? String { return URL(string: urlStr) }
+            return nil
+        }()
+
+        let durationMs = trackObj["duration_ms"] as? Int ?? 0
+        return SpotifyTrack(id: id, title: name, artist: artist,
+                            album: album, uri: uri,
+                            albumArtURL: albumArtURL, durationMs: durationMs)
     }
 }

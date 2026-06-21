@@ -3,6 +3,38 @@ import Combine
 
 private let accentGreen = Color(red: 0.18, green: 0.8, blue: 0.44)
 
+// MARK: - Image cache
+
+/// Shared in-memory cache of decoded artwork, keyed by URL.
+/// Avoids re-downloading and (more importantly) re-decoding images as
+/// LazyVStack rows recycle during scrolling.
+private enum ImageCache {
+    static let shared: NSCache<NSURL, NSImage> = {
+        let cache = NSCache<NSURL, NSImage>()
+        cache.countLimit = 1500
+        return cache
+    }()
+}
+
+/// Cache for decoded bundle (app asset) images so repeated view bodies don't
+/// re-read and re-decode local files from disk on every render.
+enum BundleImageCache {
+    private static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+
+    static func image(resource: String, ext: String) -> NSImage? {
+        let key = "\(resource).\(ext)" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let url = Bundle.main.url(forResource: resource, withExtension: ext),
+              let img = NSImage(contentsOf: url) else { return nil }
+        cache.setObject(img, forKey: key)
+        return img
+    }
+}
+
 // MARK: - Async Image helper
 
 private struct RemoteImage: View {
@@ -33,9 +65,45 @@ private struct RemoteImage: View {
 
     private func load() async {
         guard let url else { return }
+
+        // Cache hit: set immediately, no network / no re-decode.
+        if let cached = ImageCache.shared.object(forKey: url as NSURL) {
+            if image !== cached { image = cached }
+            return
+        }
+
         guard let (data, _) = try? await URLSession.shared.data(from: url),
               let loaded = NSImage(data: data) else { return }
+        ImageCache.shared.setObject(loaded, forKey: url as NSURL)
+
+        // Guard against row recycling to a different URL while we were loading.
+        guard self.url == url else { return }
         image = loaded
+    }
+}
+
+// MARK: - Liked Songs artwork
+
+private struct LikedSongsArtwork: View {
+    let size: CGFloat
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [Color(red: 0.27, green: 0.20, blue: 0.85),
+                             Color(red: 0.45, green: 0.55, blue: 0.98)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                Image(systemName: "heart.fill")
+                    .font(.system(size: size * 0.5, weight: .bold))
+                    .foregroundColor(.white)
+            )
+            .frame(width: size, height: size)
     }
 }
 
@@ -237,7 +305,11 @@ private struct SearchResultRow: View {
                     .foregroundColor(.white.opacity(0.3))
 
             case .playlist(let playlist):
-                RemoteImage(url: playlist.imageURL, size: 32, cornerRadius: 5)
+                if playlist.isLikedSongs {
+                    LikedSongsArtwork(size: 32, cornerRadius: 5)
+                } else {
+                    RemoteImage(url: playlist.imageURL, size: 32, cornerRadius: 5)
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(playlist.name)
@@ -283,7 +355,9 @@ private struct PlaylistTrackRow: View {
             Text("\(index + 1)")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(isPlaying ? accentGreen : .white.opacity(0.25))
-                .frame(width: 18, alignment: .trailing)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 18, alignment: .trailing)
 
             RemoteImage(url: track.albumArtURL, size: 32, cornerRadius: 4)
 
@@ -317,10 +391,12 @@ private struct PlaylistTrackRow: View {
 
 private struct RightPanel: View {
     @ObservedObject var viewModel: HUDViewModel
-    @State private var searchScrollMetrics = ScrollMetrics()
+    @State private var searchScroll = ScrollController()
     @State private var searchDragOffset: CGFloat? = nil
-    @State private var playlistScrollMetrics = ScrollMetrics()
+    @State private var searchScrollPosition = ScrollPosition(edge: .top)
+    @State private var playlistScroll = ScrollController()
     @State private var playlistDragOffset: CGFloat? = nil
+    @State private var playlistScrollPosition = ScrollPosition(edge: .top)
 
     var body: some View {
         if viewModel.selectedPlaylist != nil {
@@ -339,141 +415,44 @@ private struct ScrollMetrics: Equatable {
     var scrollOffset: CGFloat = 0
 }
 
-private struct SmoothScrollView<Content: View>: NSViewRepresentable {
-    let content: Content
-    let scrollToIndex: Int?
-    @Binding var metrics: ScrollMetrics
-    @Binding var externalScrollOffset: CGFloat?
+/// Holds live scroll metrics. Kept as a reference type (held via `@State`, not
+/// `@StateObject`) so that per-frame metric updates only re-render the
+/// `CustomScrollbar` that observes it — NOT the parent view that builds the
+/// List. This prevents the list from being rebuilt on every scroll frame,
+/// which is what made scrolling stutter/jump.
+private final class ScrollController: ObservableObject {
+    @Published var metrics = ScrollMetrics()
+}
 
-    init(scrollToIndex: Int? = nil, 
-         metrics: Binding<ScrollMetrics>, 
-         externalScrollOffset: Binding<CGFloat?> = .constant(nil),
-         @ViewBuilder content: () -> Content) {
-        self.content = content()
-        self.scrollToIndex = scrollToIndex
-        self._metrics = metrics
-        self._externalScrollOffset = externalScrollOffset
+/// Hides the native (legacy) scroller of the enclosing NSScrollView so only the
+/// custom thin scrollbar is visible. Placed as a zero-size row inside a List so
+/// its backing view lives inside the scroll view's document hierarchy.
+private struct ScrollerHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { Self.hideScroller(from: view) }
+        return view
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { Self.hideScroller(from: nsView) }
+    }
+
+    private static func hideScroller(from view: NSView) {
+        guard let scrollView = view.enclosingScrollView else { return }
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
-        scrollView.drawsBackground = false
-        scrollView.autohidesScrollers = true
-        
-        let hostingView = NSHostingView(rootView: content)
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        
-        scrollView.documentView = hostingView
-        
-        // Constraints to make hostingView span the width of the clipView
-        NSLayoutConstraint.activate([
-            hostingView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
-            hostingView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor)
-        ])
-        
-        context.coordinator.setup(scrollView)
-        return scrollView
-    }
-
-    func updateNSView(_ nsView: NSScrollView, context: Context) {
-        context.coordinator.update(scrollToIndex: scrollToIndex, externalScrollOffset: externalScrollOffset)
-        
-        if let hostingView = nsView.documentView as? NSHostingView<Content> {
-            hostingView.rootView = content
-            hostingView.frame.size.width = nsView.contentView.bounds.width
-            hostingView.needsLayout = true
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject {
-        var parent: SmoothScrollView
-        weak var scrollView: NSScrollView?
-        private var lastScrollToIndex: Int?
-
-        init(_ parent: SmoothScrollView) {
-            self.parent = parent
-        }
-
-        func setup(_ scrollView: NSScrollView) {
-            self.scrollView = scrollView
-            scrollView.contentView.postsBoundsChangedNotifications = true
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(handleScroll),
-                name: NSView.boundsDidChangeNotification,
-                object: scrollView.contentView
-            )
-            updateMetrics()
-        }
-
-        func update(scrollToIndex: Int?, externalScrollOffset: CGFloat?) {
-            updateMetrics()
-            
-            guard let sv = scrollView, let doc = sv.documentView else { return }
-
-            // 1. Handle Dragging (highest priority)
-            if let external = externalScrollOffset {
-                sv.contentView.scroll(to: NSPoint(x: 0, y: external))
-                return 
-            }
-
-            // 2. Handle programmatic index scrolling
-            if let index = scrollToIndex, index != lastScrollToIndex {
-                lastScrollToIndex = index
-                
-                let rowHeight: CGFloat = 48
-                let targetY = CGFloat(index) * rowHeight
-                let viewportHeight = sv.contentView.bounds.height
-                let currentScroll = sv.contentView.bounds.origin.y
-                
-                if targetY < currentScroll || targetY + rowHeight > currentScroll + viewportHeight {
-                    let centerOffset = targetY - (viewportHeight / 2) + (rowHeight / 2)
-                    let maxScroll = (doc.frame.height) - viewportHeight
-                    let finalY = max(0, min(maxScroll, centerOffset))
-                    
-                    NSAnimationContext.runAnimationGroup { context in
-                        context.duration = 0.2
-                        context.timingFunction = .init(name: .easeInEaseOut)
-                        sv.contentView.animator().scroll(to: NSPoint(x: 0, y: finalY))
-                    }
-                }
-            } else if scrollToIndex == nil {
-                lastScrollToIndex = nil
-            }
-        }
-
-        @objc func handleScroll() {
-            updateMetrics()
-        }
-
-        private func updateMetrics() {
-            guard let sv = scrollView, let doc = sv.documentView else { return }
-            let contentHeight = doc.frame.height
-            let viewportHeight = sv.contentView.bounds.height
-            let scrollOffset = sv.contentView.bounds.origin.y
-            
-            DispatchQueue.main.async {
-                self.parent.metrics = ScrollMetrics(
-                    contentHeight: contentHeight,
-                    viewportHeight: viewportHeight,
-                    scrollOffset: scrollOffset
-                )
-            }
-        }
+        scrollView.scrollerStyle = .overlay
+        scrollView.verticalScrollElasticity = .allowed
     }
 }
 
 private struct CustomScrollbar: View {
-    let metrics: ScrollMetrics
+    @ObservedObject var controller: ScrollController
     @Binding var dragOffset: CGFloat?
-    
+
+    private var metrics: ScrollMetrics { controller.metrics }
+
     var body: some View {
         GeometryReader { geo in
             let trackHeight = geo.size.height
@@ -551,41 +530,61 @@ extension RightPanel {
 
     @ViewBuilder
     private var searchResultsView: some View {
-        ZStack(alignment: .trailing) {
-            SmoothScrollView(
-                scrollToIndex: viewModel.selectionIndex, 
-                metrics: $searchScrollMetrics,
-                externalScrollOffset: $searchDragOffset
-            ) {
-                LazyVStack(spacing: 2) {
-                    if viewModel.isSearching {
-                        HStack {
-                            ProgressView().scaleEffect(0.7).padding(.vertical, 8)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 10)
-                    } else if viewModel.displayedResults.isEmpty {
-                        Text(viewModel.searchText.isEmpty ? "Your playlists will appear here" : "No results")
-                            .font(.system(size: 13))
-                            .foregroundColor(.white.opacity(0.3))
-                            .padding(.top, 20)
-                            .frame(maxWidth: .infinity)
-                    } else {
+        if viewModel.isSearching {
+            HStack {
+                ProgressView().scaleEffect(0.7).padding(.vertical, 8)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else if viewModel.displayedResults.isEmpty {
+            Text(viewModel.searchText.isEmpty ? "Your playlists will appear here" : "No results")
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.3))
+                .padding(.top, 20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else {
+            ZStack(alignment: .trailing) {
+                ScrollViewReader { proxy in
+                    List {
+                        ScrollerHider().frame(height: 0).plainListRow()
                         ForEach(0..<viewModel.displayedResults.count, id: \.self) { index in
                             let result = viewModel.displayedResults[index]
                             SearchResultRow(result: result, isSelected: index == viewModel.selectionIndex)
                                 .id(index)
                                 .contentShape(Rectangle())
                                 .onTapGesture { viewModel.playResult(result) }
+                                .plainListRow()
+                        }
+                    }
+                    .listStyle(.plain)
+                    .environment(\.defaultMinListRowHeight, 0)
+                    .scrollContentBackground(.hidden)
+                    .scrollIndicators(.never)
+                    .scrollPosition($searchScrollPosition)
+                    .onScrollGeometryChange(for: ScrollMetrics.self) { geo in
+                        ScrollMetrics(
+                            contentHeight: geo.contentSize.height,
+                            viewportHeight: geo.containerSize.height,
+                            scrollOffset: geo.contentOffset.y
+                        )
+                    } action: { _, newValue in
+                        searchScroll.metrics = newValue
+                    }
+                    .onChange(of: searchDragOffset) { _, newValue in
+                        if let y = newValue { searchScrollPosition.scrollTo(y: y) }
+                    }
+                    .onChange(of: viewModel.selectionIndex) { _, idx in
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo(idx, anchor: .center)
                         }
                     }
                 }
-                .padding(.trailing, 20)
+
+                CustomScrollbar(controller: searchScroll, dragOffset: $searchDragOffset)
+                    .padding(.vertical, 4)
+                    .padding(.trailing, 2)
             }
-            
-            CustomScrollbar(metrics: searchScrollMetrics, dragOffset: $searchDragOffset)
-                .padding(.vertical, 4)
-                .padding(.trailing, 2)
         }
     }
 
@@ -604,7 +603,11 @@ extension RightPanel {
                 .buttonStyle(.plain)
 
                 if let playlist = viewModel.selectedPlaylist {
-                    RemoteImage(url: playlist.imageURL, size: 22, cornerRadius: 3)
+                    if playlist.isLikedSongs {
+                        LikedSongsArtwork(size: 22, cornerRadius: 3)
+                    } else {
+                        RemoteImage(url: playlist.imageURL, size: 22, cornerRadius: 3)
+                    }
                     Text(playlist.name)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
@@ -631,24 +634,61 @@ extension RightPanel {
                 Spacer()
             } else {
                 ZStack(alignment: .trailing) {
-                    SmoothScrollView(
-                        scrollToIndex: viewModel.selectionIndex,
-                        metrics: $playlistScrollMetrics,
-                        externalScrollOffset: $playlistDragOffset
-                    ) {
-                        LazyVStack(spacing: 2) {
+                    ScrollViewReader { proxy in
+                        List {
+                            ScrollerHider().frame(height: 0).plainListRow()
                             ForEach(Array(viewModel.displayedPlaylistTracks.enumerated()), id: \.element.id) { index, track in
                                 PlaylistTrackRow(track: track, index: index, isSelected: index == viewModel.selectionIndex)
                                     .onTapGesture {
                                         viewModel.playTrack(track)
                                     }
                                     .contentShape(Rectangle())
+                                    .plainListRow()
+                            }
+
+                            if viewModel.tracksHasMore {
+                                HStack {
+                                    Spacer()
+                                    ProgressView().scaleEffect(0.6)
+                                    Spacer()
+                                }
+                                .frame(height: 36)
+                                .onAppear { viewModel.loadMoreTracks() }
+                                .plainListRow()
                             }
                         }
-                        .padding(.trailing, 20)
+                        .listStyle(.plain)
+                        .environment(\.defaultMinListRowHeight, 0)
+                        .scrollContentBackground(.hidden)
+                        .scrollIndicators(.never)
+                        .scrollPosition($playlistScrollPosition)
+                        .onScrollGeometryChange(for: ScrollMetrics.self) { geo in
+                            ScrollMetrics(
+                                contentHeight: geo.contentSize.height,
+                                viewportHeight: geo.containerSize.height,
+                                scrollOffset: geo.contentOffset.y
+                            )
+                        } action: { _, newValue in
+                            playlistScroll.metrics = newValue
+                            // Prefetch the next page as the user nears the bottom.
+                            let distanceToBottom = newValue.contentHeight - (newValue.scrollOffset + newValue.viewportHeight)
+                            if distanceToBottom < 600 {
+                                viewModel.loadMoreTracks()
+                            }
+                        }
+                        .onChange(of: playlistDragOffset) { _, newValue in
+                            if let y = newValue { playlistScrollPosition.scrollTo(y: y) }
+                        }
+                        .onChange(of: viewModel.selectionIndex) { _, idx in
+                            guard idx >= 0, idx < viewModel.displayedPlaylistTracks.count else { return }
+                            let trackID = viewModel.displayedPlaylistTracks[idx].id
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                proxy.scrollTo(trackID, anchor: .center)
+                            }
+                        }
                     }
-                    
-                    CustomScrollbar(metrics: playlistScrollMetrics, dragOffset: $playlistDragOffset)
+
+                    CustomScrollbar(controller: playlistScroll, dragOffset: $playlistDragOffset)
                         .padding(.vertical, 4)
                         .padding(.trailing, 2)
                 }
@@ -662,7 +702,7 @@ extension RightPanel {
 private struct SettingsView: View {
     @ObservedObject var viewModel: HUDViewModel
     @EnvironmentObject var stateController: StateController
-    @State private var scrollMetrics = ScrollMetrics()
+    @State private var scrollController = ScrollController()
     @State private var dragOffset: CGFloat? = nil
     @State private var scrollPosition = ScrollPosition(edge: .top)
 
@@ -672,8 +712,7 @@ private struct SettingsView: View {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 16) {
                         HStack(spacing: 12) {
-                            if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
-                               let nsImage = NSImage(contentsOf: url) {
+                            if let nsImage = BundleImageCache.image(resource: "logo", ext: "png") {
                                 Image(nsImage: nsImage)
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
@@ -799,7 +838,7 @@ private struct SettingsView: View {
                         scrollOffset: geo.contentOffset.y
                     )
                 } action: { _, newValue in
-                    scrollMetrics = newValue
+                    scrollController.metrics = newValue
                 }
                 .onChange(of: dragOffset) { _, newValue in
                     if let y = newValue {
@@ -807,7 +846,7 @@ private struct SettingsView: View {
                     }
                 }
 
-                CustomScrollbar(metrics: scrollMetrics, dragOffset: $dragOffset)
+                CustomScrollbar(controller: scrollController, dragOffset: $dragOffset)
                     .padding(.vertical, 4)
                     .padding(.trailing, 2)
             }
@@ -960,7 +999,7 @@ public struct HUDView: View {
                 Button(action: { viewModel.toggleSettings() }) {
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 18))
-                        .foregroundColor(viewModel.showSettings ? accentGreen : .white.opacity(0.6))
+                        .foregroundColor(viewModel.showSettings ? .white : .white.opacity(0.6))
                         .offset(y: -1) // Move up one
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
@@ -1016,7 +1055,12 @@ public struct HUDView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .hudDidShow)) { _ in
         }
-        .onReceive(timer) { _ in viewModel.refreshNowPlaying() }
+        .onReceive(timer) { _ in
+            // Skip polling while the show fade-in is running so its state updates
+            // and artwork loads don't stutter the animation.
+            guard !WindowManager.shared.isAnimatingShow else { return }
+            Task { await viewModel.refreshNowPlaying() }
+        }
         .background(
             ZStack {
                 if !viewModel.isMinimized {
@@ -1074,5 +1118,15 @@ private struct HoverHighlight: ViewModifier {
 extension View {
     func hoverHighlight(_ style: HoverStyle = .icon) -> some View {
         self.modifier(HoverHighlight(style: style))
+    }
+
+    /// Strips List's default chrome (insets, background, separators) so custom
+    /// rows render edge-to-edge with a small vertical gap and room for the
+    /// overlaid custom scrollbar on the trailing edge.
+    func plainListRow() -> some View {
+        self
+            .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 20))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
     }
 }

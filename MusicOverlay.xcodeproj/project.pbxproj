@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		DCC2B2582FB12D8900CD5158 /* AppleMusicManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B24E2FB12D8900CD5158 /* AppleMusicManager.swift */; };
 		DCC2B2592FB12D8900CD5158 /* HUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2512FB12D8900CD5158 /* HUDView.swift */; };
+		DCC2B3012FB12D8900CD5158 /* SmoothScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B3002FB12D8900CD5158 /* SmoothScroll.swift */; };
 		DCC2B25A2FB12D8900CD5158 /* MediaServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2492FB12D8900CD5158 /* MediaServiceProtocol.swift */; };
 		DCC2B25B2FB12D8900CD5158 /* HUDViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2522FB12D8900CD5158 /* HUDViewModel.swift */; };
 		DCC2B25C2FB12D8900CD5158 /* TrackInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2472FB12D8900CD5158 /* TrackInfo.swift */; };
@@ -62,6 +63,7 @@
 		DCC2B24E2FB12D8900CD5158 /* AppleMusicManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicManager.swift; sourceTree = "<group>"; };
 		DCC2B24F2FB12D8900CD5158 /* SpotifyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyManager.swift; sourceTree = "<group>"; };
 		DCC2B2512FB12D8900CD5158 /* HUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDView.swift; sourceTree = "<group>"; };
+		DCC2B3002FB12D8900CD5158 /* SmoothScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmoothScroll.swift; sourceTree = "<group>"; };
 		DCC2B2522FB12D8900CD5158 /* HUDViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDViewModel.swift; sourceTree = "<group>"; };
 		DCC2B2532FB12D8900CD5158 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		DCC2B2552FB12D8900CD5158 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -152,6 +154,7 @@
 			isa = PBXGroup;
 			children = (
 				DCC2B2512FB12D8900CD5158 /* HUDView.swift */,
+				DCC2B3002FB12D8900CD5158 /* SmoothScroll.swift */,
 				DCC2B2522FB12D8900CD5158 /* HUDViewModel.swift */,
 				DCC2B2532FB12D8900CD5158 /* OnboardingView.swift */,
 			);
@@ -252,6 +255,7 @@
 			files = (
 				DCC2B2582FB12D8900CD5158 /* AppleMusicManager.swift in Sources */,
 				DCC2B2592FB12D8900CD5158 /* HUDView.swift in Sources */,
+				DCC2B3012FB12D8900CD5158 /* SmoothScroll.swift in Sources */,
 				DCC2B25A2FB12D8900CD5158 /* MediaServiceProtocol.swift in Sources */,
 				DCC2B25B2FB12D8900CD5158 /* HUDViewModel.swift in Sources */,
 				DCC2B25C2FB12D8900CD5158 /* TrackInfo.swift in Sources */,

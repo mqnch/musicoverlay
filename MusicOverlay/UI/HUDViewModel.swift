@@ -23,6 +23,8 @@ public class HUDViewModel: ObservableObject {
     @Published public var selectedPlaylist: Playlist? = nil
     @Published public var playlistTracks: [SpotifyTrack] = []
     @Published public var isLoadingTracks: Bool = false
+    @Published public var isLoadingMoreTracks: Bool = false
+    @Published public var tracksHasMore: Bool = false
 
     // MARK: - Keyboard selection
 
@@ -47,7 +49,20 @@ public class HUDViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var searchTask: Task<Void, Never>? = nil
     private var cachedPlaylists: [Playlist] = []
-    private var playlistTracksCache: [String: [SpotifyTrack]] = [:]
+
+    /// Cached, possibly-partial track pages per playlist so reopening restores
+    /// what was already loaded without refetching.
+    private struct CachedTrackPage {
+        var tracks: [SpotifyTrack]
+        var offset: Int
+        var hasMore: Bool
+    }
+    private var playlistTracksCache: [String: CachedTrackPage] = [:]
+
+    /// How many tracks to load per page (Spotify caps each API call at 50, so
+    /// this issues a few calls per page).
+    private let trackPageSize = 200
+    private var loadTracksTask: Task<Void, Never>? = nil
     
     private let lastPlayedKey = "HUDViewModel.LastPlayed"
     private let miniPlayerEnabledKey = "HUDViewModel.IsMiniPlayerEnabled"
@@ -154,6 +169,10 @@ public class HUDViewModel: ObservableObject {
 
     private func sortCachedPlaylists() {
         cachedPlaylists.sort { (p1, p2) -> Bool in
+            // Pin Liked Songs to the very top.
+            if p1.isLikedSongs != p2.isLikedSongs {
+                return p1.isLikedSongs
+            }
             let d1 = p1.lastPlayed ?? .distantPast
             let d2 = p2.lastPlayed ?? .distantPast
             if d1 != d2 {
@@ -183,25 +202,36 @@ public class HUDViewModel: ObservableObject {
     // MARK: - Playlist drill-down
 
     public func openPlaylist(_ playlist: Playlist) {
+        loadTracksTask?.cancel()
         selectedPlaylist = playlist
         selectionIndex = 0
         searchText = ""
-        
+
         if let cached = playlistTracksCache[playlist.id] {
-            playlistTracks = cached
+            playlistTracks = cached.tracks
+            tracksHasMore = cached.hasMore
             isLoadingTracks = false
+            isLoadingMoreTracks = false
             return
         }
-        
+
         playlistTracks = []
+        tracksHasMore = false
+        isLoadingMoreTracks = false
         isLoadingTracks = true
 
-        Task {
+        loadTracksTask = Task {
             do {
-                let tracks = try await stateController.activeService?.fetchPlaylistTracks(playlistID: playlist.id) ?? []
-                self.playlistTracks = tracks
-                self.playlistTracksCache[playlist.id] = tracks
-                print("[HUDViewModel] Loaded \(tracks.count) tracks for playlist '\(playlist.name)'")
+                let result = try await stateController.activeService?.fetchPlaylistTracks(
+                    playlistID: playlist.id, offset: 0, limit: trackPageSize
+                ) ?? (tracks: [], hasMore: false)
+                if Task.isCancelled { return }
+                self.playlistTracks = result.tracks
+                self.tracksHasMore = result.hasMore
+                self.playlistTracksCache[playlist.id] = CachedTrackPage(
+                    tracks: result.tracks, offset: result.tracks.count, hasMore: result.hasMore
+                )
+                print("[HUDViewModel] Loaded \(result.tracks.count) tracks for playlist '\(playlist.name)' (hasMore=\(result.hasMore))")
             } catch {
                 print("[HUDViewModel] fetchPlaylistTracks error: \(error)")
                 self.playlistTracks = []
@@ -210,9 +240,44 @@ public class HUDViewModel: ObservableObject {
         }
     }
 
+    /// Loads the next page of tracks for the open playlist. Safe to call repeatedly;
+    /// it no-ops while already loading or when there are no more tracks.
+    public func loadMoreTracks() {
+        guard let playlist = selectedPlaylist,
+              tracksHasMore,
+              !isLoadingTracks,
+              !isLoadingMoreTracks else { return }
+
+        isLoadingMoreTracks = true
+        let offset = playlistTracks.count
+
+        loadTracksTask = Task {	
+            do {
+                let result = try await stateController.activeService?.fetchPlaylistTracks(
+                    playlistID: playlist.id, offset: offset, limit: trackPageSize
+                ) ?? (tracks: [], hasMore: false)
+                if Task.isCancelled { return }
+                // Guard against the user having switched playlists mid-load.
+                guard self.selectedPlaylist?.id == playlist.id else { return }
+                self.playlistTracks.append(contentsOf: result.tracks)
+                self.tracksHasMore = result.hasMore
+                self.playlistTracksCache[playlist.id] = CachedTrackPage(
+                    tracks: self.playlistTracks, offset: self.playlistTracks.count, hasMore: result.hasMore
+                )
+                print("[HUDViewModel] Loaded \(result.tracks.count) more tracks (total \(self.playlistTracks.count), hasMore=\(result.hasMore))")
+            } catch {
+                print("[HUDViewModel] loadMoreTracks error: \(error)")
+            }
+            self.isLoadingMoreTracks = false
+        }
+    }
+
     public func closePlaylist() {
+        loadTracksTask?.cancel()
         selectedPlaylist = nil
         playlistTracks = []
+        tracksHasMore = false
+        isLoadingMoreTracks = false
         selectionIndex = 0
         searchText = ""
     }
@@ -287,7 +352,15 @@ public class HUDViewModel: ObservableObject {
         if let playlist = selectedPlaylist {
             markPlaylistPlayed(playlist.id)
         }
-        stateController.activeService?.playTrack(uri: track.uri, contextUri: selectedPlaylist?.uri)
+
+        if selectedPlaylist?.isLikedSongs == true,
+           let index = playlistTracks.firstIndex(where: { $0.id == track.id }) {
+            // Play Liked Songs as a real collection context so playback advances
+            // (and honors shuffle) instead of looping the single track.
+            stateController.activeService?.playLikedSongs(startIndex: index)
+        } else {
+            stateController.activeService?.playTrack(uri: track.uri, contextUri: selectedPlaylist?.uri)
+        }
         scheduleImmediateRefresh()
         WindowManager.shared.hideHUD()
     }
@@ -364,35 +437,59 @@ public class HUDViewModel: ObservableObject {
 
     // MARK: - Now Playing refresh (called by 0.5s timer)
 
-    public func refreshNowPlaying() {
-        guard let track = stateController.activeService?.getCurrentTrack() else {
+    public func refreshNowPlaying() async {
+        guard let service = stateController.activeService else { return }
+
+        // Run the blocking AppleScript IPC off the main thread so the 0.5s poll
+        // never stalls the UI. Resumes on the main actor after the await.
+        let track = await Task.detached(priority: .utility) {
+            service.getCurrentTrack()
+        }.value
+
+        guard let track else {
             // Nothing playing — don't force isPlaying to any state
             return
         }
-        stateController.currentTrack = track
+
+        apply(track)
+    }
+
+    /// Applies a freshly-polled track to published state, only writing each
+    /// property when it actually changed to avoid redundant SwiftUI rebuilds.
+    private func apply(_ track: TrackInfo) {
+        let current = stateController.currentTrack
+        let isSameTrack = current?.title == track.title
+            && current?.artist == track.artist
+            && current?.album == track.album
+            && current?.duration == track.duration
+            && current?.albumArtURL == track.albumArtURL
+        if !isSameTrack {
+            stateController.currentTrack = track
+        }
+
         // Only sync isPlaying from AppleScript if we're not in the transient
         // window right after a user toggle (avoids flicker).
         let timeSinceToggle = Date().timeIntervalSince(lastToggleTime)
         if timeSinceToggle > 1.2 {
-            isPlaying = track.isPlaying
-            isShuffled = track.isShuffled
-            repeatMode = track.repeatMode
+            if isPlaying != track.isPlaying { isPlaying = track.isPlaying }
+            if isShuffled != track.isShuffled { isShuffled = track.isShuffled }
+            if repeatMode != track.repeatMode { repeatMode = track.repeatMode }
         }
         // Only update sliders if user isn't actively dragging
-        if !isSeeking {
+        if !isSeeking, playbackPosition != track.position {
             playbackPosition = track.position
         }
         if trackDuration != track.duration && track.duration > 0 {
             trackDuration = track.duration
         }
-        volume = track.volume
+        if volume != track.volume { volume = track.volume }
     }
 
     /// Fire a refresh ~350ms after a track command so Spotify has time to switch.
     private func scheduleImmediateRefresh() {
         Task {
             try? await Task.sleep(nanoseconds: 350_000_000)
-            refreshNowPlaying()
+            await refreshNowPlaying()
         }
     }
 }

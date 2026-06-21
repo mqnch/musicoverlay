@@ -20,10 +20,35 @@ public class WindowManager: NSObject {
     private var lastKeyCode: UInt16 = 0
     private var lastShowTime: Date = .distantPast
     private var isAutoMinimizeLocked: Bool = false
+
+    /// Set synchronously while a minimize (fade-out -> resize -> fade-in) is in
+    /// flight. Clicking off the app fires two dismissal handlers at nearly the
+    /// same instant; this flag lets the second one bail out so only one fade runs.
+    private var isMinimizing: Bool = false
+
+    /// True while the show fade-in is still running. Used to suppress the 0.5s
+    /// now-playing poll so its `@Published` mutations / artwork tasks don't add
+    /// work mid-animation and cause the fade to drop frames.
+    public var isAnimatingShow: Bool {
+        Date().timeIntervalSince(lastShowTime) < 0.25
+    }
     private var pendingAction: DispatchWorkItem?
 
     /// Registered by HUDView so the keyboard monitor can route commands.
     public weak var activeViewModel: HUDViewModel?
+
+    /// One smooth-scroll engine per `NSScrollView`, keyed by identity. Lets us
+    /// normalize jittery mouse-wheel events into a consistent eased scroll.
+    private var scrollEngines: [ObjectIdentifier: SmoothScrollEngine] = [:]
+
+    /// Cancels and drops every cached scroll engine. Called on each show so a
+    /// reused scroll view always gets a fresh engine: ordering the panel out can
+    /// leave an engine stuck mid-animation (dead display link, `isAnimating`
+    /// still true), which would block all mouse-wheel scrolling after reopening.
+    private func resetScrollEngines() {
+        for engine in scrollEngines.values { engine.cancel() }
+        scrollEngines.removeAll()
+    }
     
     private override init() {
         super.init()
@@ -101,6 +126,10 @@ public class WindowManager: NSObject {
             return WindowManager.shared.handleKeyDown(event)
         }
 
+        NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { @MainActor event in
+            return WindowManager.shared.handleScrollWheel(event)
+        }
+
         // Global mouse-down monitor: fires only for clicks destined for OTHER apps
         // (never for clicks on our own panel or status bar icon), so it reliably
         // dismisses the HUD when the user clicks outside the app. This is robust
@@ -109,6 +138,36 @@ public class WindowManager: NSObject {
             Task { @MainActor in
                 WindowManager.shared.handleClickOutside()
             }
+        }
+
+        prewarmHUD()
+    }
+
+    /// Builds and rasterizes the full SwiftUI HUD graph once, at launch, while the
+    /// panel is parked off-screen and fully transparent. The first build of the
+    /// HUD is by far the most expensive frame (it constructs the `List`'s backing
+    /// `NSScrollView`/`NSTableView`, the corner hole-punch offscreen pass, and the
+    /// behind-window blur). Paying that cost here keeps it from landing on the same
+    /// runloop turn as a user-triggered show's fade, which is what intermittently
+    /// dropped the first animation frames. Later shows only re-rasterize the
+    /// already-built graph, which is cheap.
+    private func prewarmHUD() {
+        guard let panel = hudPanel else { return }
+        let offscreen = NSRect(x: -10_000, y: -10_000, width: fullSize.width, height: fullSize.height)
+        panel.setFrame(offscreen, display: false)
+        panel.alphaValue = 0.0
+        // orderFrontRegardless so warming never steals focus or app activation at launch.
+        panel.orderFrontRegardless()
+
+        // Force SwiftUI to evaluate bodies and lay out the whole tree now.
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.displayIfNeeded()
+        CATransaction.flush()
+
+        // Let one runloop turn pass so SwiftUI's deferred List/NSTableView layout
+        // and the first compositing pass complete, then put the panel away.
+        DispatchQueue.main.async { [weak panel] in
+            panel?.orderOut(nil as Any?)
         }
     }
 
@@ -125,6 +184,36 @@ public class WindowManager: NSObject {
         } else {
             actuallyHideHUD()
         }
+    }
+
+    /// Normalizes mouse-wheel scrolling. Trackpad (precise) and momentum events
+    /// pass straight through to native handling; discrete mouse-wheel notches are
+    /// consumed and replayed as a smooth, fixed-step scroll to avoid macOS's
+    /// speed-dependent acceleration that makes mouse scrolling feel jittery.
+    private func handleScrollWheel(_ event: NSEvent) -> NSEvent? {
+        guard let panel = hudPanel, panel.isVisible, panel.alphaValue > 0.1 else { return event }
+        guard event.window === panel, let contentView = panel.contentView else { return event }
+
+        // Leave trackpads and inertial momentum scrolling untouched.
+        if event.hasPreciseScrollingDeltas || event.momentumPhase != [] || event.phase != [] {
+            return event
+        }
+
+        let deltaY = event.scrollingDeltaY
+        guard deltaY != 0,
+              let scrollView = scrollViewUnderCursor(in: contentView, atWindowPoint: event.locationInWindow)
+        else { return event }
+
+        let engine = scrollEngines[ObjectIdentifier(scrollView)] ?? {
+            let new = SmoothScrollEngine(scrollView: scrollView)
+            scrollEngines[ObjectIdentifier(scrollView)] = new
+            return new
+        }()
+
+        // A positive scrollingDeltaY means "scroll up" (reveal earlier content),
+        // which for a flipped document view decreases the clip origin.
+        engine.addStep(direction: deltaY > 0 ? -1 : 1)
+        return nil
     }
 
     @discardableResult
@@ -211,6 +300,7 @@ public class WindowManager: NSObject {
     public func showHUD() {
         guard let panel = hudPanel else { return }
         
+        resetScrollEngines()
         lastShowTime = Date()
         isAutoMinimizeLocked = true
         activeViewModel?.isMinimized = false
@@ -239,13 +329,26 @@ public class WindowManager: NSObject {
 
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil as Any?)
-        
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().alphaValue = 1.0
-        } completionHandler: {
-            NotificationCenter.default.post(name: .hudDidShow, object: nil)
+
+        // Force the first-frame composite of the reused SwiftUI tree to happen now,
+        // while the panel is still fully transparent. Because the panel is ordered
+        // out on hide, the first render after re-showing is expensive; doing it here
+        // keeps it from competing with the fade's animation ticks.
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.displayIfNeeded()
+        CATransaction.flush()
+
+        // Start the fade on the next runloop turn so the animation begins on a clean
+        // main thread, after the heavy first composite + activation are done. This
+        // prevents the first one or two animation ticks from being dropped.
+        DispatchQueue.main.async {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                panel.animator().alphaValue = 1.0
+            } completionHandler: {
+                NotificationCenter.default.post(name: .hudDidShow, object: nil)
+            }
         }
     }
     
@@ -277,7 +380,9 @@ public class WindowManager: NSObject {
 
     public func minimizeHUD(force: Bool = false) {
         guard let panel = hudPanel, let vm = activeViewModel, !vm.isMinimized else { return }
+        if isMinimizing { return }
         if !force && isAutoMinimizeLocked { return }
+        isMinimizing = true
         
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.2
@@ -313,6 +418,10 @@ public class WindowManager: NSObject {
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.2
                     panel.animator().alphaValue = 1.0
+                } completionHandler: {
+                    Task { @MainActor in
+                        self.isMinimizing = false
+                    }
                 }
             }
         })
@@ -321,6 +430,7 @@ public class WindowManager: NSObject {
     public func expandHUD() {
         guard let panel = hudPanel, let vm = activeViewModel, vm.isMinimized else { return }
 
+        resetScrollEngines()
         lastShowTime = Date()
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.2
