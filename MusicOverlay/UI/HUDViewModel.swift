@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 @MainActor
 public class HUDViewModel: ObservableObject {
@@ -14,6 +15,7 @@ public class HUDViewModel: ObservableObject {
     @Published public var isMinimized: Bool = false
     @Published public var showSettings: Bool = false
     @Published public var isMiniPlayerEnabled: Bool = true
+    @Published public var showMenuBarIcon: Bool = true
     @Published public var hotkeyModifier: String = "Shift" // "Shift", "Control", "Option"
 
     // MARK: - Playlist drill-down
@@ -49,6 +51,7 @@ public class HUDViewModel: ObservableObject {
     
     private let lastPlayedKey = "HUDViewModel.LastPlayed"
     private let miniPlayerEnabledKey = "HUDViewModel.IsMiniPlayerEnabled"
+    private let menuBarIconKey = "HUDViewModel.ShowMenuBarIcon"
     private let hotkeyModifierKey = "HUDViewModel.HotkeyModifier"
     private var lastPlayedDates: [String: Date] = [:]
 
@@ -68,6 +71,11 @@ public class HUDViewModel: ObservableObject {
             UserDefaults.standard.set(true, forKey: miniPlayerEnabledKey)
         }
         self.isMiniPlayerEnabled = UserDefaults.standard.bool(forKey: miniPlayerEnabledKey)
+        
+        if UserDefaults.standard.object(forKey: menuBarIconKey) == nil {
+            UserDefaults.standard.set(true, forKey: menuBarIconKey)
+        }
+        self.showMenuBarIcon = UserDefaults.standard.bool(forKey: menuBarIconKey)
         
         self.hotkeyModifier = UserDefaults.standard.string(forKey: hotkeyModifierKey) ?? "Shift"
 
@@ -222,6 +230,12 @@ public class HUDViewModel: ObservableObject {
         UserDefaults.standard.set(isMiniPlayerEnabled, forKey: miniPlayerEnabledKey)
     }
 
+    public func toggleMenuBarIcon() {
+        showMenuBarIcon.toggle()
+        UserDefaults.standard.set(showMenuBarIcon, forKey: menuBarIconKey)
+        MenuBarManager.shared.setVisible(showMenuBarIcon)
+    }
+
     public func updateHotkeyModifier(_ modifier: String) {
         hotkeyModifier = modifier
         UserDefaults.standard.set(modifier, forKey: hotkeyModifierKey)
@@ -250,6 +264,10 @@ public class HUDViewModel: ObservableObject {
         // Hide HUD and show onboarding
         WindowManager.shared.actuallyHideHUD()
         WindowManager.shared.showOnboardingWindow()
+    }
+
+    public func quitApp() {
+        NSApplication.shared.terminate(nil)
     }
 
     // MARK: - Playback actions

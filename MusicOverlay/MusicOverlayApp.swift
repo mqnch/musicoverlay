@@ -28,6 +28,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         WindowManager.shared.setupHUD()
         HotkeyManager.shared.setup()
         
+        // Menu bar icon (on by default)
+        if UserDefaults.standard.object(forKey: "HUDViewModel.ShowMenuBarIcon") == nil {
+            UserDefaults.standard.set(true, forKey: "HUDViewModel.ShowMenuBarIcon")
+        }
+        MenuBarManager.shared.setVisible(UserDefaults.standard.bool(forKey: "HUDViewModel.ShowMenuBarIcon"))
+        
         if StateController.shared.onboardingCompleted {
             StateController.shared.initializeService()
             // Delay the first show slightly to let the system settle and avoid focus flicker

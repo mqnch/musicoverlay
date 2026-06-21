@@ -4,11 +4,9 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
-	<key>com.apple.security.network.client</key>
+	<key>com.apple.security.device.audio-input</key>
 	<true/>
-	<key>com.apple.security.network.server</key>
-	<true/>
-	<key>com.apple.security.files.user-selected.read-only</key>
+	<key>com.apple.security.device.audio-output</key>
 	<true/>
 	<key>com.apple.security.exception.mach-lookup.global-name</key>
 	<array>
@@ -16,16 +14,18 @@
 		<string>com.apple.itunescloudd.xpc</string>
 		<string>com.apple.dnssd.service</string>
 	</array>
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<key>com.apple.security.personal-information.apple-id</key>
+	<true/>
 	<key>com.apple.security.temporary-exception.apple-events</key>
 	<array>
 		<string>com.apple.Music</string>
 		<string>com.spotify.client</string>
 	</array>
-	<key>com.apple.security.device.audio-input</key>
-	<true/>
-	<key>com.apple.security.device.audio-output</key>
-	<true/>
-	<key>com.apple.security.personal-information.apple-id</key>
-	<true/>
 </dict>
 </plist>

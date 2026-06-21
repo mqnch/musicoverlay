@@ -100,6 +100,31 @@ public class WindowManager: NSObject {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { @MainActor event in
             return WindowManager.shared.handleKeyDown(event)
         }
+
+        // Global mouse-down monitor: fires only for clicks destined for OTHER apps
+        // (never for clicks on our own panel or status bar icon), so it reliably
+        // dismisses the HUD when the user clicks outside the app. This is robust
+        // even when didResignActiveNotification doesn't fire (e.g. with a status item).
+        NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
+            Task { @MainActor in
+                WindowManager.shared.handleClickOutside()
+            }
+        }
+    }
+
+    private func handleClickOutside() {
+        guard let panel = hudPanel, panel.isVisible, panel.alphaValue > 0.1 else { return }
+        guard let vm = activeViewModel else { return }
+        if vm.isMinimized { return }
+        // Ignore the brief window right after showing so a stray event tied to launch /
+        // window activation can't auto-dismiss the HUD. A genuine user click moments
+        // later (well within this window) is intentional and we honor it via `force`.
+        if Date().timeIntervalSince(lastShowTime) < 0.6 { return }
+        if vm.isMiniPlayerEnabled {
+            minimizeHUD(force: true)
+        } else {
+            actuallyHideHUD()
+        }
     }
 
     @discardableResult
@@ -250,8 +275,9 @@ public class WindowManager: NSObject {
     private let miniSize = NSSize(width: 240, height: 64)
     private let fullSize = NSSize(width: 620, height: 420)
 
-    public func minimizeHUD() {
-        guard let panel = hudPanel, let vm = activeViewModel, !vm.isMinimized, !isAutoMinimizeLocked else { return }
+    public func minimizeHUD(force: Bool = false) {
+        guard let panel = hudPanel, let vm = activeViewModel, !vm.isMinimized else { return }
+        if !force && isAutoMinimizeLocked { return }
         
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.2

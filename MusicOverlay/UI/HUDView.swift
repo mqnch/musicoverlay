@@ -333,7 +333,7 @@ private struct RightPanel: View {
 
 // MARK: - Custom Scroll Bar helpers
 
-private struct ScrollMetrics {
+private struct ScrollMetrics: Equatable {
     var contentHeight: CGFloat = 0
     var viewportHeight: CGFloat = 0
     var scrollOffset: CGFloat = 0
@@ -662,110 +662,180 @@ extension RightPanel {
 private struct SettingsView: View {
     @ObservedObject var viewModel: HUDViewModel
     @EnvironmentObject var stateController: StateController
+    @State private var scrollMetrics = ScrollMetrics()
+    @State private var dragOffset: CGFloat? = nil
+    @State private var scrollPosition = ScrollPosition(edge: .top)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Settings")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(.white)
-                .padding(.bottom, 4)
-
-            VStack(spacing: 16) {
-                // Mini Player Toggle
-                SettingRow(
-                    title: "Enable Mini Player",
-                    description: "Automatically minimize to a small window when inactive or after playing a track.",
-                    isOn: Binding(
-                        get: { viewModel.isMiniPlayerEnabled },
-                        set: { _ in viewModel.toggleMiniPlayer() }
-                    )
-                )
-
-                Divider().background(Color.white.opacity(0.1))
-
-                // Hotkey Customization
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Hotkey Gesture")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
-                        Text("Double-tap to toggle HUD")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.5))
-                    }
-                    Spacer()
-                    Menu {
-                        ForEach(["Shift", "Control", "Option", "Command"], id: \.self) { mod in
-                            Button(mod) { viewModel.updateHotkeyModifier(mod) }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(viewModel.hotkeyModifier)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 10))
-                        }
-                        .font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.1))
-                        .cornerRadius(8)
-                    }
-                    .menuStyle(.button)
-                }
-                .padding(.vertical, 4)
-
-                Divider().background(Color.white.opacity(0.1))
-
-                // Service Info & Actions
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Active Service")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
-                        Text(stateController.activeService?.name ?? "None")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.5))
-                    }
-                    Spacer()
-                    
-                    HStack(spacing: 10) {
-                        Button(action: { viewModel.clearCache() }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.clockwise")
-                                Text("Clear Cache")
+        VStack(spacing: 0) {
+            ZStack(alignment: .trailing) {
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack(spacing: 12) {
+                            if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
+                               let nsImage = NSImage(contentsOf: url) {
+                                Image(nsImage: nsImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 32, height: 32)
                             }
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white.opacity(0.8))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.1))
-                            .cornerRadius(8)
-                            .hoverHighlight(.background)
-                        }
-                        .buttonStyle(.plain)
 
-                        Button(action: { viewModel.logout() }) {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.red.opacity(0.7))
-                                .padding(10)
-                                .background(Color.red.opacity(0.15))
-                                .clipShape(Circle())
-                                .hoverHighlight()
+                            Text("Settings")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.white)
                         }
-                        .buttonStyle(.plain)
-                        .help("Logout")
+                        .padding(.bottom, 4)
+
+                        // Mini Player Toggle
+                        SettingRow(
+                            title: "Enable Mini Player",
+                            description: "Automatically minimize to a small window when inactive or after playing a track.",
+                            isOn: Binding(
+                                get: { viewModel.isMiniPlayerEnabled },
+                                set: { _ in viewModel.toggleMiniPlayer() }
+                            )
+                        )
+
+                        Divider().background(Color.white.opacity(0.1))
+
+                        // Menu Bar Icon Toggle
+                        SettingRow(
+                            title: "Show in Menu Bar",
+                            description: "Add a music icon to the macOS menu bar to quickly open or quit the app.",
+                            isOn: Binding(
+                                get: { viewModel.showMenuBarIcon },
+                                set: { _ in viewModel.toggleMenuBarIcon() }
+                            )
+                        )
+
+                        Divider().background(Color.white.opacity(0.1))
+
+                        // Hotkey Customization
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Hotkey Gesture")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Text("Double-tap to toggle HUD")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                            Spacer()
+                            Menu {
+                                ForEach(["Shift", "Control", "Option", "Command"], id: \.self) { mod in
+                                    Button(mod) { viewModel.updateHotkeyModifier(mod) }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(viewModel.hotkeyModifier)
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.system(size: 10))
+                                }
+                                .font(.system(size: 13, weight: .medium))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                            .menuStyle(.button)
+                        }
+                        .padding(.vertical, 4)
+
+                        Divider().background(Color.white.opacity(0.1))
+
+                        // Service Info & Actions
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Active Service")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Text(stateController.activeService?.name ?? "None")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                            Spacer()
+
+                            HStack(spacing: 10) {
+                                Button(action: { viewModel.clearCache() }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "arrow.clockwise")
+                                        Text("Clear Cache")
+                                    }
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color.white.opacity(0.1))
+                                    .cornerRadius(8)
+                                    .hoverHighlight(.background)
+                                }
+                                .buttonStyle(.plain)
+
+                                Button(action: { viewModel.logout() }) {
+                                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.red.opacity(0.7))
+                                        .padding(10)
+                                        .background(Color.red.opacity(0.15))
+                                        .clipShape(Circle())
+                                        .hoverHighlight()
+                                }
+                                .buttonStyle(.plain)
+                                .help("Logout")
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollIndicators(.never)
+                .scrollPosition($scrollPosition)
+                .onScrollGeometryChange(for: ScrollMetrics.self) { geo in
+                    ScrollMetrics(
+                        contentHeight: geo.contentSize.height,
+                        viewportHeight: geo.containerSize.height,
+                        scrollOffset: geo.contentOffset.y
+                    )
+                } action: { _, newValue in
+                    scrollMetrics = newValue
+                }
+                .onChange(of: dragOffset) { _, newValue in
+                    if let y = newValue {
+                        scrollPosition.scrollTo(y: y)
                     }
                 }
-                .padding(.vertical, 4)
+
+                CustomScrollbar(metrics: scrollMetrics, dragOffset: $dragOffset)
+                    .padding(.vertical, 4)
+                    .padding(.trailing, 2)
             }
+            .frame(maxHeight: .infinity)
 
-            Spacer()
-
-            Text("MusicOverlay v1.0.0")
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.2))
-                .frame(maxWidth: .infinity, alignment: .center)
+            HStack {
+                Text("MusicOverlay v1.0.0")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.2))
+                
+                Spacer()
+                
+                Button(action: { viewModel.quitApp() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "power")
+                        Text("Quit App")
+                    }
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white.opacity(0.4))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.05))
+                    .cornerRadius(6)
+                    .hoverHighlight(.background)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 12)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 24)

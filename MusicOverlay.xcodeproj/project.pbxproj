@@ -1,0 +1,552 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		DCC2B2582FB12D8900CD5158 /* AppleMusicManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B24E2FB12D8900CD5158 /* AppleMusicManager.swift */; };
+		DCC2B2592FB12D8900CD5158 /* HUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2512FB12D8900CD5158 /* HUDView.swift */; };
+		DCC2B25A2FB12D8900CD5158 /* MediaServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2492FB12D8900CD5158 /* MediaServiceProtocol.swift */; };
+		DCC2B25B2FB12D8900CD5158 /* HUDViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2522FB12D8900CD5158 /* HUDViewModel.swift */; };
+		DCC2B25C2FB12D8900CD5158 /* TrackInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2472FB12D8900CD5158 /* TrackInfo.swift */; };
+		DCC2B25D2FB12D8900CD5158 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2532FB12D8900CD5158 /* OnboardingView.swift */; };
+		DCC2B25E2FB12D8900CD5158 /* SearchResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2452FB12D8900CD5158 /* SearchResult.swift */; };
+		DCC2B25F2FB12D8900CD5158 /* SpotifyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B24F2FB12D8900CD5158 /* SpotifyManager.swift */; };
+		DCC2B2602FB12D8900CD5158 /* StateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2412FB12D8900CD5158 /* StateController.swift */; };
+		DCC2B2612FB12D8900CD5158 /* Playlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2442FB12D8900CD5158 /* Playlist.swift */; };
+		DCC2B2622FB12D8900CD5158 /* SpotifyTrack.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2462FB12D8900CD5158 /* SpotifyTrack.swift */; };
+		DCC2B2632FB12D8900CD5158 /* SpotifyAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2402FB12D8900CD5158 /* SpotifyAuthManager.swift */; };
+		DCC2B2642FB12D8900CD5158 /* WindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2422FB12D8900CD5158 /* WindowManager.swift */; };
+		DCC2B2652FB12D8900CD5158 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B23F2FB12D8900CD5158 /* KeychainHelper.swift */; };
+		DCC2B2662FB12D8900CD5158 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B23E2FB12D8900CD5158 /* HotkeyManager.swift */; };
+		DCC2B2A02FB12D8900CD5158 /* MenuBarManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2A12FB12D8900CD5158 /* MenuBarManager.swift */; };
+		DCC2B2672FB12D8900CD5158 /* MusicOverlayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC2B2562FB12D8900CD5158 /* MusicOverlayApp.swift */; };
+		DCC2B2692FB12D8900CD5158 /* spotify_icon.svg in Resources */ = {isa = PBXBuildFile; fileRef = DCC2B24C2FB12D8900CD5158 /* spotify_icon.svg */; };
+		DCC2B26A2FB12D8900CD5158 /* apple_music_icon.svg in Resources */ = {isa = PBXBuildFile; fileRef = DCC2B24B2FB12D8900CD5158 /* apple_music_icon.svg */; };
+		DCC2B2712FB178DF00CD5158 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DCC2B2702FB178DF00CD5158 /* Assets.xcassets */; };
+		DCC2B2912FB178DF00CD5158 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = DCC2B2902FB178DF00CD5158 /* AppIcon.icon */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXBuildRule section */
+		DCC2B26B2FB14F2A00CD5158 /* PBXBuildRule */ = {
+			isa = PBXBuildRule;
+			compilerSpec = com.apple.compilers.proxy.script;
+			fileType = pattern.proxy;
+			inputFiles = (
+			);
+			isEditable = 1;
+			outputFiles = (
+			);
+			script = "# Type a script or drag a script file from your workspace to insert its path.\n";
+		};
+/* End PBXBuildRule section */
+
+/* Begin PBXFileReference section */
+		DCC2B2042FB0438900CD5158 /* MusicOverlay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MusicOverlay.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DCC2B23E2FB12D8900CD5158 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
+		DCC2B2A12FB12D8900CD5158 /* MenuBarManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarManager.swift; sourceTree = "<group>"; };
+		DCC2B23F2FB12D8900CD5158 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		DCC2B2402FB12D8900CD5158 /* SpotifyAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyAuthManager.swift; sourceTree = "<group>"; };
+		DCC2B2412FB12D8900CD5158 /* StateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StateController.swift; sourceTree = "<group>"; };
+		DCC2B2422FB12D8900CD5158 /* WindowManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowManager.swift; sourceTree = "<group>"; };
+		DCC2B2442FB12D8900CD5158 /* Playlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Playlist.swift; sourceTree = "<group>"; };
+		DCC2B2452FB12D8900CD5158 /* SearchResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResult.swift; sourceTree = "<group>"; };
+		DCC2B2462FB12D8900CD5158 /* SpotifyTrack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyTrack.swift; sourceTree = "<group>"; };
+		DCC2B2472FB12D8900CD5158 /* TrackInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackInfo.swift; sourceTree = "<group>"; };
+		DCC2B2492FB12D8900CD5158 /* MediaServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaServiceProtocol.swift; sourceTree = "<group>"; };
+		DCC2B24B2FB12D8900CD5158 /* apple_music_icon.svg */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = apple_music_icon.svg; sourceTree = "<group>"; };
+		DCC2B24C2FB12D8900CD5158 /* spotify_icon.svg */ = {isa = PBXFileReference; lastKnownFileType = text; path = spotify_icon.svg; sourceTree = "<group>"; };
+		DCC2B24E2FB12D8900CD5158 /* AppleMusicManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicManager.swift; sourceTree = "<group>"; };
+		DCC2B24F2FB12D8900CD5158 /* SpotifyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyManager.swift; sourceTree = "<group>"; };
+		DCC2B2512FB12D8900CD5158 /* HUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDView.swift; sourceTree = "<group>"; };
+		DCC2B2522FB12D8900CD5158 /* HUDViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDViewModel.swift; sourceTree = "<group>"; };
+		DCC2B2532FB12D8900CD5158 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		DCC2B2552FB12D8900CD5158 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		DCC2B2562FB12D8900CD5158 /* MusicOverlayApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicOverlayApp.swift; sourceTree = "<group>"; };
+		DCC2B2702FB178DF00CD5158 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DCC2B2902FB178DF00CD5158 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		DCC2B2012FB0438900CD5158 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		DCC2B1FB2FB0438900CD5158 = {
+			isa = PBXGroup;
+			children = (
+				DCC2B2702FB178DF00CD5158 /* Assets.xcassets */,
+				DCC2B2572FB12D8900CD5158 /* MusicOverlay */,
+				DCC2B2052FB0438900CD5158 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		DCC2B2052FB0438900CD5158 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				DCC2B2042FB0438900CD5158 /* MusicOverlay.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		DCC2B2432FB12D8900CD5158 /* Managers */ = {
+			isa = PBXGroup;
+			children = (
+				DCC2B23E2FB12D8900CD5158 /* HotkeyManager.swift */,
+				DCC2B2A12FB12D8900CD5158 /* MenuBarManager.swift */,
+				DCC2B23F2FB12D8900CD5158 /* KeychainHelper.swift */,
+				DCC2B2402FB12D8900CD5158 /* SpotifyAuthManager.swift */,
+				DCC2B2412FB12D8900CD5158 /* StateController.swift */,
+				DCC2B2422FB12D8900CD5158 /* WindowManager.swift */,
+			);
+			path = Managers;
+			sourceTree = "<group>";
+		};
+		DCC2B2482FB12D8900CD5158 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				DCC2B2442FB12D8900CD5158 /* Playlist.swift */,
+				DCC2B2452FB12D8900CD5158 /* SearchResult.swift */,
+				DCC2B2462FB12D8900CD5158 /* SpotifyTrack.swift */,
+				DCC2B2472FB12D8900CD5158 /* TrackInfo.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		DCC2B24A2FB12D8900CD5158 /* Protocols */ = {
+			isa = PBXGroup;
+			children = (
+				DCC2B2492FB12D8900CD5158 /* MediaServiceProtocol.swift */,
+			);
+			path = Protocols;
+			sourceTree = "<group>";
+		};
+		DCC2B24D2FB12D8900CD5158 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				DCC2B24B2FB12D8900CD5158 /* apple_music_icon.svg */,
+				DCC2B24C2FB12D8900CD5158 /* spotify_icon.svg */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		DCC2B2502FB12D8900CD5158 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				DCC2B24E2FB12D8900CD5158 /* AppleMusicManager.swift */,
+				DCC2B24F2FB12D8900CD5158 /* SpotifyManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		DCC2B2542FB12D8900CD5158 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				DCC2B2512FB12D8900CD5158 /* HUDView.swift */,
+				DCC2B2522FB12D8900CD5158 /* HUDViewModel.swift */,
+				DCC2B2532FB12D8900CD5158 /* OnboardingView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		DCC2B2572FB12D8900CD5158 /* MusicOverlay */ = {
+			isa = PBXGroup;
+			children = (
+				DCC2B2432FB12D8900CD5158 /* Managers */,
+				DCC2B2482FB12D8900CD5158 /* Models */,
+				DCC2B24A2FB12D8900CD5158 /* Protocols */,
+				DCC2B24D2FB12D8900CD5158 /* Resources */,
+				DCC2B2502FB12D8900CD5158 /* Services */,
+				DCC2B2542FB12D8900CD5158 /* UI */,
+				DCC2B2902FB178DF00CD5158 /* AppIcon.icon */,
+				DCC2B2552FB12D8900CD5158 /* Info.plist */,
+				DCC2B2562FB12D8900CD5158 /* MusicOverlayApp.swift */,
+			);
+			path = MusicOverlay;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		DCC2B2032FB0438900CD5158 /* MusicOverlay */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DCC2B20F2FB0438B00CD5158 /* Build configuration list for PBXNativeTarget "MusicOverlay" */;
+			buildPhases = (
+				DCC2B2002FB0438900CD5158 /* Sources */,
+				DCC2B2012FB0438900CD5158 /* Frameworks */,
+				DCC2B2022FB0438900CD5158 /* Resources */,
+			);
+			buildRules = (
+				DCC2B26B2FB14F2A00CD5158 /* PBXBuildRule */,
+			);
+			dependencies = (
+			);
+			name = MusicOverlay;
+			packageProductDependencies = (
+			);
+			productName = MusicOverlay;
+			productReference = DCC2B2042FB0438900CD5158 /* MusicOverlay.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DCC2B1FC2FB0438900CD5158 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2640;
+				LastUpgradeCheck = 2640;
+				TargetAttributes = {
+					DCC2B2032FB0438900CD5158 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
+				};
+			};
+			buildConfigurationList = DCC2B1FF2FB0438900CD5158 /* Build configuration list for PBXProject "MusicOverlay" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = DCC2B1FB2FB0438900CD5158;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = DCC2B2052FB0438900CD5158 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				DCC2B2032FB0438900CD5158 /* MusicOverlay */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DCC2B2022FB0438900CD5158 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DCC2B2692FB12D8900CD5158 /* spotify_icon.svg in Resources */,
+				DCC2B2712FB178DF00CD5158 /* Assets.xcassets in Resources */,
+				DCC2B2912FB178DF00CD5158 /* AppIcon.icon in Resources */,
+				DCC2B26A2FB12D8900CD5158 /* apple_music_icon.svg in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		DCC2B2002FB0438900CD5158 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DCC2B2582FB12D8900CD5158 /* AppleMusicManager.swift in Sources */,
+				DCC2B2592FB12D8900CD5158 /* HUDView.swift in Sources */,
+				DCC2B25A2FB12D8900CD5158 /* MediaServiceProtocol.swift in Sources */,
+				DCC2B25B2FB12D8900CD5158 /* HUDViewModel.swift in Sources */,
+				DCC2B25C2FB12D8900CD5158 /* TrackInfo.swift in Sources */,
+				DCC2B25D2FB12D8900CD5158 /* OnboardingView.swift in Sources */,
+				DCC2B25E2FB12D8900CD5158 /* SearchResult.swift in Sources */,
+				DCC2B25F2FB12D8900CD5158 /* SpotifyManager.swift in Sources */,
+				DCC2B2602FB12D8900CD5158 /* StateController.swift in Sources */,
+				DCC2B2612FB12D8900CD5158 /* Playlist.swift in Sources */,
+				DCC2B2622FB12D8900CD5158 /* SpotifyTrack.swift in Sources */,
+				DCC2B2632FB12D8900CD5158 /* SpotifyAuthManager.swift in Sources */,
+				DCC2B2642FB12D8900CD5158 /* WindowManager.swift in Sources */,
+				DCC2B2652FB12D8900CD5158 /* KeychainHelper.swift in Sources */,
+				DCC2B2662FB12D8900CD5158 /* HotkeyManager.swift in Sources */,
+				DCC2B2A02FB12D8900CD5158 /* MenuBarManager.swift in Sources */,
+				DCC2B2672FB12D8900CD5158 /* MusicOverlayApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		DCC2B20D2FB0438B00CD5158 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		DCC2B20E2FB0438B00CD5158 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		DCC2B2102FB0438B00CD5158 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
+				AUTOMATION_APPLE_EVENTS = NO;
+				CODE_SIGN_ENTITLEMENTS = MusicOverlay/MusicOverlay.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5HZ9LX5GTY;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_FILE_ACCESS_MUSIC_FOLDER = readonly;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MusicOverlay/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = MusicOverlay;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.4;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = musicoverlay.MusicOverlay;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				XROS_DEPLOYMENT_TARGET = 26.4;
+			};
+			name = Debug;
+		};
+		DCC2B2112FB0438B00CD5158 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
+				AUTOMATION_APPLE_EVENTS = NO;
+				CODE_SIGN_ENTITLEMENTS = MusicOverlay/MusicOverlay.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5HZ9LX5GTY;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_FILE_ACCESS_MUSIC_FOLDER = readonly;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MusicOverlay/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = MusicOverlay;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.4;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = musicoverlay.MusicOverlay;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				XROS_DEPLOYMENT_TARGET = 26.4;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		DCC2B1FF2FB0438900CD5158 /* Build configuration list for PBXProject "MusicOverlay" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DCC2B20D2FB0438B00CD5158 /* Debug */,
+				DCC2B20E2FB0438B00CD5158 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DCC2B20F2FB0438B00CD5158 /* Build configuration list for PBXNativeTarget "MusicOverlay" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DCC2B2102FB0438B00CD5158 /* Debug */,
+				DCC2B2112FB0438B00CD5158 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = DCC2B1FC2FB0438900CD5158 /* Project object */;
+}

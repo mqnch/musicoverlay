@@ -167,27 +167,82 @@ public class SpotifyManager: MediaServiceProtocol {
     public func playTrack(uri: String, contextUri: String?) {
         Task {
             await SpotifyAuthManager.shared.refreshTokenIfNeeded()
-            guard let url = URL(string: "https://api.spotify.com/v1/me/player/play"),
-                  var request = authorizedRequest(url: url, method: "PUT") else { return }
-            
-            var body: [String: Any] = [:]
-            if let context = contextUri {
-                body["context_uri"] = context
-                body["offset"] = ["uri": uri]
-            } else {
-                body["uris"] = [uri]
+            do {
+                try await performPlay(uri: uri, contextUri: contextUri, retryWithTransfer: true)
+            } catch {
+                print("[SpotifyManager] playTrack failed: \(error)")
             }
-            
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            
-            URLSession.shared.dataTask(with: request) { _, response, error in
-                if let error = error { print("[SpotifyManager] playTrack error: \(error)") }
-                else if let http = response as? HTTPURLResponse, http.statusCode != 204 {
-                    print("[SpotifyManager] playTrack HTTP \(http.statusCode)")
-                }
-            }.resume()
         }
+    }
+
+    private func performPlay(uri: String, contextUri: String?, retryWithTransfer: Bool) async throws {
+        guard let url = URL(string: "https://api.spotify.com/v1/me/player/play"),
+              var request = authorizedRequest(url: url, method: "PUT") else { return }
+        
+        var body: [String: Any] = [:]
+        if let context = contextUri {
+            body["context_uri"] = context
+            body["offset"] = ["uri": uri]
+        } else {
+            body["uris"] = [uri]
+        }
+        
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { return }
+        
+        if http.statusCode == 404 && retryWithTransfer {
+            print("[SpotifyManager] playTrack 404 (No active device). Attempting to transfer playback...")
+            if await transferPlaybackToAvailableDevice() {
+                // Wait briefly for transfer to propagate
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                try await performPlay(uri: uri, contextUri: contextUri, retryWithTransfer: false)
+            } else {
+                print("[SpotifyManager] No available devices for transfer. Falling back to AppleScript.")
+                playURIViaAppleScript(uri: uri, contextUri: contextUri)
+            }
+        } else if http.statusCode != 204 && http.statusCode != 200 {
+            let errorBody = String(data: data, encoding: .utf8) ?? ""
+            print("[SpotifyManager] playTrack HTTP \(http.statusCode): \(errorBody)")
+            // If all Web API attempts fail, try AppleScript as a final effort
+            if retryWithTransfer {
+                playURIViaAppleScript(uri: uri, contextUri: contextUri)
+            }
+        }
+    }
+
+    private func transferPlaybackToAvailableDevice() async -> Bool {
+        guard let url = URL(string: "https://api.spotify.com/v1/me/player/devices"),
+              let request = authorizedRequest(url: url) else { return false }
+        
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let devices = json["devices"] as? [[String: Any]],
+              let deviceId = (devices.first(where: { ($0["is_active"] as? Bool) == true }) ?? devices.first)?["id"] as? String else { 
+            return false 
+        }
+        
+        guard let transferURL = URL(string: "https://api.spotify.com/v1/me/player"),
+              var transferReq = authorizedRequest(url: transferURL, method: "PUT") else { return false }
+        
+        let body: [String: Any] = ["device_ids": [deviceId], "play": false]
+        transferReq.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        let (_, transferRes) = (try? await URLSession.shared.data(for: transferReq)) ?? (Data(), URLResponse())
+        return (transferRes as? HTTPURLResponse)?.statusCode == 204
+    }
+
+    private func playURIViaAppleScript(uri: String, contextUri: String?) {
+        let script: String
+        if let context = contextUri {
+            // Using 'in context' ensures it plays within the playlist/album context
+            script = "tell application \"Spotify\" to play track \"\(uri)\" in context \"\(context)\""
+        } else {
+            script = "tell application \"Spotify\" to play track \"\(uri)\""
+        }
+        _ = executeDynamicAppleScript(script)
     }
 
     public func setShuffle(_ on: Bool) {
@@ -398,10 +453,12 @@ public class SpotifyManager: MediaServiceProtocol {
 
             if let items = json["items"] as? [[String: Any]] {
                 for item in items {
-                    guard let trackObj = item["item"] as? [String: Any] else { continue }
+                    // Reverting to 'item' as primary since it worked for the user, 
+                    // but adding 'track' as fallback for standard API responses.
+                    guard let trackObj = (item["item"] as? [String: Any]) ?? (item["track"] as? [String: Any]) else { continue }
                     
                     let type = trackObj["type"] as? String ?? "unknown"
-                    if type != "track" { continue }
+                    if type != "track" && type != "episode" { continue }
 
                     guard let id   = trackObj["id"]   as? String,
                           let name = trackObj["name"] as? String,

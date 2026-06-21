@@ -15,10 +15,18 @@ public struct OnboardingView: View {
     }
     
     public var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
+            if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
+               let nsImage = NSImage(contentsOf: url) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 80, height: 80)
+                    .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
+            }
+            
             Text("Welcome to MusicOverlay")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+                .font(.system(size: 28, weight: .bold))
             
             Text("Choose your music service to get started.")
                 .font(.title3)
