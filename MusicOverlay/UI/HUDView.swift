@@ -749,6 +749,19 @@ private struct SettingsView: View {
 
                         Divider().background(Color.white.opacity(0.1))
 
+                        // Window Transparency Slider
+                        SettingSliderRow(
+                            title: "Window Transparency",
+                            description: "Blend between frosted Apple glass and a solid opaque background.",
+                            value: Binding(
+                                get: { viewModel.windowOpacity },
+                                set: { viewModel.setWindowOpacity($0) }
+                            ),
+                            range: 0.0...1.0
+                        )
+
+                        Divider().background(Color.white.opacity(0.1))
+
                         // Hotkey Customization
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
@@ -907,6 +920,43 @@ private struct SettingRow: View {
                 .toggleStyle(.switch)
                 .labelsHidden()
                 .scaleEffect(0.8)
+        }
+    }
+}
+
+private struct SettingSliderRow: View {
+    let title: String
+    let description: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text(description)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.5))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                Text("\(Int((value / range.upperBound) * 100))%")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+                    .monospacedDigit()
+            }
+
+            Slider(value: $value, in: range)
+                .accentColor(.white)
+                .tint(.white)
+                .foregroundColor(.white)
+                .controlSize(.mini)
         }
     }
 }

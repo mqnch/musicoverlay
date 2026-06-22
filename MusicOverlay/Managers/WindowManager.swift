@@ -12,6 +12,8 @@ public class WindowManager: NSObject {
     public static let shared = WindowManager()
     
     private var hudPanel: NSPanel?
+    private weak var hudContainer: NSView?
+    private weak var glassView: NSVisualEffectView?
     private var onboardingWindow: NSWindow?
     private var keyboardMonitor: Any?
     
@@ -71,6 +73,19 @@ public class WindowManager: NSObject {
         panel.isMovableByWindowBackground = false
         panel.center()
         
+        // Container clips all layers to the rounded shape and carries the border.
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.cornerRadius = 24.0
+        container.layer?.masksToBounds = true
+        container.layer?.borderWidth = 0.5
+        container.layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
+
+        // Solid background revealed as the glass layer fades toward opaque.
+        let opaqueBackground = NSView()
+        opaqueBackground.wantsLayer = true
+        opaqueBackground.layer?.backgroundColor = NSColor(srgbRed: 0.12, green: 0.12, blue: 0.13, alpha: 1.0).cgColor
+
         let visualEffect = NSVisualEffectView()
         visualEffect.material = .hudWindow
         visualEffect.blendingMode = .behindWindow
@@ -80,30 +95,35 @@ public class WindowManager: NSObject {
         visualEffect.layer?.cornerRadius = 24.0
         visualEffect.layer?.masksToBounds = true
         visualEffect.maskImage = .maskImage(cornerRadius: 24.0)
-        visualEffect.layer?.borderWidth = 0.5
-        visualEffect.layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
-        
-        
-        
+
         let hudView = HUDView(stateController: StateController.shared)
             .environmentObject(StateController.shared)
             .fontDesign(.monospaced)
         let hostingView = NSHostingView(rootView: hudView)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
-        
-        visualEffect.addSubview(hostingView)
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: visualEffect.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor)
-        ])
-        
-        panel.contentView = visualEffect
+
+        // Stack: opaque background (bottom) -> glass -> SwiftUI content (top).
+        // Content sits above the glass so it stays sharp at any glass opacity.
+        for layer in [opaqueBackground, visualEffect, hostingView] {
+            container.addSubview(layer)
+            layer.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                layer.topAnchor.constraint(equalTo: container.topAnchor),
+                layer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                layer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                layer.trailingAnchor.constraint(equalTo: container.trailingAnchor)
+            ])
+        }
+
+        let persistedOpacity = UserDefaults.standard.object(forKey: "HUDViewModel.WindowOpacity") as? Double
+        visualEffect.alphaValue = CGFloat(persistedOpacity ?? 1.0)
+
+        panel.contentView = container
         panel.delegate = self
         self.hudPanel = panel
+        self.hudContainer = container
+        self.glassView = visualEffect
         
         NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
@@ -141,6 +161,15 @@ public class WindowManager: NSObject {
         }
 
         prewarmHUD()
+    }
+
+    /// Crossfades the HUD between frosted Apple glass (value 1.0) and a solid
+    /// opaque background (value 0.0) by fading only the glass layer. The SwiftUI
+    /// content sits above the glass, so it stays fully sharp at any value. This is
+    /// independent of `panel.alphaValue`, which is reserved for fade in/out
+    /// animations and visibility checks, and covers both full and mini modes.
+    public func setWindowOpacity(_ value: Double) {
+        glassView?.alphaValue = CGFloat(value)
     }
 
     /// Builds and rasterizes the full SwiftUI HUD graph once, at launch, while the
@@ -322,10 +351,9 @@ public class WindowManager: NSObject {
         panel.setFrame(centerFrame, display: true)
         panel.isMovableByWindowBackground = false
         
-        if let visualEffect = panel.contentView as? NSVisualEffectView {
-            visualEffect.layer?.cornerRadius = 24.0
-            visualEffect.maskImage = .maskImage(cornerRadius: 24.0)
-        }
+        hudContainer?.layer?.cornerRadius = 24.0
+        glassView?.layer?.cornerRadius = 24.0
+        glassView?.maskImage = .maskImage(cornerRadius: 24.0)
 
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil as Any?)
@@ -410,10 +438,9 @@ public class WindowManager: NSObject {
                 panel.setFrame(targetFrame, display: true)
                 panel.isMovableByWindowBackground = true
                 
-                if let visualEffect = panel.contentView as? NSVisualEffectView {
-                    visualEffect.layer?.cornerRadius = 16.0
-                    visualEffect.maskImage = .maskImage(cornerRadius: 16.0)
-                }
+                self.hudContainer?.layer?.cornerRadius = 16.0
+                self.glassView?.layer?.cornerRadius = 16.0
+                self.glassView?.maskImage = .maskImage(cornerRadius: 16.0)
                 
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.2
@@ -451,10 +478,9 @@ public class WindowManager: NSObject {
                 panel.setFrame(targetFrame, display: true)
                 panel.isMovableByWindowBackground = false
                 
-                if let visualEffect = panel.contentView as? NSVisualEffectView {
-                    visualEffect.layer?.cornerRadius = 24.0
-                    visualEffect.maskImage = .maskImage(cornerRadius: 24.0)
-                }
+                self.hudContainer?.layer?.cornerRadius = 24.0
+                self.glassView?.layer?.cornerRadius = 24.0
+                self.glassView?.maskImage = .maskImage(cornerRadius: 24.0)
                 
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.2

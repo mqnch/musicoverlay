@@ -17,6 +17,7 @@ public class HUDViewModel: ObservableObject {
     @Published public var isMiniPlayerEnabled: Bool = true
     @Published public var showMenuBarIcon: Bool = true
     @Published public var hotkeyModifier: String = "Shift" // "Shift", "Control", "Option"
+    @Published public var windowOpacity: Double = 1.0
 
     // MARK: - Playlist drill-down
 
@@ -68,6 +69,7 @@ public class HUDViewModel: ObservableObject {
     private let miniPlayerEnabledKey = "HUDViewModel.IsMiniPlayerEnabled"
     private let menuBarIconKey = "HUDViewModel.ShowMenuBarIcon"
     private let hotkeyModifierKey = "HUDViewModel.HotkeyModifier"
+    private let windowOpacityKey = "HUDViewModel.WindowOpacity"
     private var lastPlayedDates: [String: Date] = [:]
 
     /// Timestamp of the last user-initiated play/pause toggle.
@@ -93,6 +95,11 @@ public class HUDViewModel: ObservableObject {
         self.showMenuBarIcon = UserDefaults.standard.bool(forKey: menuBarIconKey)
         
         self.hotkeyModifier = UserDefaults.standard.string(forKey: hotkeyModifierKey) ?? "Shift"
+
+        if UserDefaults.standard.object(forKey: windowOpacityKey) == nil {
+            UserDefaults.standard.set(1.0, forKey: windowOpacityKey)
+        }
+        self.windowOpacity = UserDefaults.standard.double(forKey: windowOpacityKey)
 
         stateController.$activeService
             .receive(on: DispatchQueue.main)
@@ -306,6 +313,13 @@ public class HUDViewModel: ObservableObject {
         UserDefaults.standard.set(modifier, forKey: hotkeyModifierKey)
         // Refresh the hotkey monitor
         HotkeyManager.shared.setup()
+    }
+
+    public func setWindowOpacity(_ value: Double) {
+        let clamped = min(max(value, 0.0), 1.0)   // 1.0 = full glass, 0.0 = solid opaque
+        windowOpacity = clamped
+        UserDefaults.standard.set(clamped, forKey: windowOpacityKey)
+        WindowManager.shared.setWindowOpacity(clamped)
     }
 
     public func clearCache() {
