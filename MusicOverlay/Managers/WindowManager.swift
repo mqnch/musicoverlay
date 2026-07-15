@@ -1,6 +1,13 @@
 @preconcurrency import AppKit
 import SwiftUI
 
+enum HUDLayout {
+    static let fullSize = CGSize(width: 620, height: 420)
+    static let miniSize = CGSize(width: 240, height: 64)
+    static let fullCornerRadius: CGFloat = 24.0
+    static let miniCornerRadius: CGFloat = 16.0
+}
+
 public class HUDPanel: NSPanel {
     public override var canBecomeKey: Bool {
         return true
@@ -43,6 +50,16 @@ public class WindowManager: NSObject {
     /// normalize jittery mouse-wheel events into a consistent eased scroll.
     private var scrollEngines: [ObjectIdentifier: SmoothScrollEngine] = [:]
 
+    /// Multiplier applied to `HUDLayout`'s base sizes/corner radii. Bootstrapped
+    /// from `UserDefaults` in `setupHUD()` and kept live-updated by `setUIScale`.
+    private var uiScale: CGFloat = 1.0
+    private var miniSize: NSSize {
+        NSSize(width: HUDLayout.miniSize.width * uiScale, height: HUDLayout.miniSize.height * uiScale)
+    }
+    private var fullSize: NSSize {
+        NSSize(width: HUDLayout.fullSize.width * uiScale, height: HUDLayout.fullSize.height * uiScale)
+    }
+
     /// Cancels and drops every cached scroll engine. Called on each show so a
     /// reused scroll view always gets a fresh engine: ordering the panel out can
     /// leave an engine stuck mid-animation (dead display link, `isAnimating`
@@ -57,13 +74,16 @@ public class WindowManager: NSObject {
     }
     
     public func setupHUD() {
+        let persistedScale = UserDefaults.standard.object(forKey: "HUDViewModel.UIScale") as? Double
+        self.uiScale = CGFloat(persistedScale ?? 1.0)
+
         let panel = HUDPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: fullSize.width, height: fullSize.height),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        
+
         panel.becomesKeyOnlyIfNeeded = false
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -72,11 +92,11 @@ public class WindowManager: NSObject {
         panel.hasShadow = true
         panel.isMovableByWindowBackground = false
         panel.center()
-        
+
         // Container clips all layers to the rounded shape and carries the border.
         let container = NSView()
         container.wantsLayer = true
-        container.layer?.cornerRadius = 24.0
+        container.layer?.cornerRadius = HUDLayout.fullCornerRadius * uiScale
         container.layer?.masksToBounds = true
         container.layer?.borderWidth = 0.5
         container.layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
@@ -92,9 +112,9 @@ public class WindowManager: NSObject {
         visualEffect.state = .active
         visualEffect.appearance = NSAppearance(named: .vibrantDark)
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 24.0
+        visualEffect.layer?.cornerRadius = HUDLayout.fullCornerRadius * uiScale
         visualEffect.layer?.masksToBounds = true
-        visualEffect.maskImage = .maskImage(cornerRadius: 24.0)
+        visualEffect.maskImage = .maskImage(cornerRadius: HUDLayout.fullCornerRadius * uiScale)
 
         let hudView = HUDView(stateController: StateController.shared)
             .environmentObject(StateController.shared)
@@ -170,6 +190,29 @@ public class WindowManager: NSObject {
     /// animations and visibility checks, and covers both full and mini modes.
     public func setWindowOpacity(_ value: Double) {
         glassView?.alphaValue = CGFloat(value)
+    }
+
+    /// Live-resizes the HUD to match a new UI scale. Only ever needs to act on
+    /// the full HUD: Settings (where this slider lives) is unreachable while
+    /// minimized, so the mini player just picks up the new scale next time
+    /// `minimizeHUD()` runs.
+    public func setUIScale(_ value: CGFloat) {
+        uiScale = value
+        guard let panel = hudPanel, panel.isVisible, panel.alphaValue > 0.1 else { return }
+        guard let vm = activeViewModel, !vm.isMinimized else { return }
+
+        let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        let visibleFrame = screen.visibleFrame
+        let targetFrame = NSRect(
+            x: visibleFrame.midX - fullSize.width / 2,
+            y: visibleFrame.midY - fullSize.height / 2,
+            width: fullSize.width,
+            height: fullSize.height
+        )
+        panel.setFrame(targetFrame, display: true)
+        hudContainer?.layer?.cornerRadius = HUDLayout.fullCornerRadius * uiScale
+        glassView?.layer?.cornerRadius = HUDLayout.fullCornerRadius * uiScale
+        glassView?.maskImage = .maskImage(cornerRadius: HUDLayout.fullCornerRadius * uiScale)
     }
 
     /// Builds and rasterizes the full SwiftUI HUD graph once, at launch, while the
@@ -350,10 +393,10 @@ public class WindowManager: NSObject {
         )
         panel.setFrame(centerFrame, display: true)
         panel.isMovableByWindowBackground = false
-        
-        hudContainer?.layer?.cornerRadius = 24.0
-        glassView?.layer?.cornerRadius = 24.0
-        glassView?.maskImage = .maskImage(cornerRadius: 24.0)
+
+        hudContainer?.layer?.cornerRadius = HUDLayout.fullCornerRadius * uiScale
+        glassView?.layer?.cornerRadius = HUDLayout.fullCornerRadius * uiScale
+        glassView?.maskImage = .maskImage(cornerRadius: HUDLayout.fullCornerRadius * uiScale)
 
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil as Any?)
@@ -403,9 +446,6 @@ public class WindowManager: NSObject {
         }
     }
 
-    private let miniSize = NSSize(width: 240, height: 64)
-    private let fullSize = NSSize(width: 620, height: 420)
-
     public func minimizeHUD(force: Bool = false) {
         guard let panel = hudPanel, let vm = activeViewModel, !vm.isMinimized else { return }
         if isMinimizing { return }
@@ -425,22 +465,21 @@ public class WindowManager: NSObject {
                 let targetFrame: NSRect
                 if let savedOriginString = UserDefaults.standard.string(forKey: "MiniPlayerOrigin"),
                    let savedOrigin = NSPointFromString(savedOriginString) as NSPoint? {
-                    targetFrame = NSRect(origin: savedOrigin, size: self.miniSize)
+                    targetFrame = self.clampedFrame(origin: savedOrigin, size: self.miniSize)
                 } else {
-                    targetFrame = NSRect(
+                    let defaultOrigin = NSPoint(
                         x: visibleFrame.maxX - self.miniSize.width - 24,
-                        y: visibleFrame.minY + 24,
-                        width: self.miniSize.width,
-                        height: self.miniSize.height
+                        y: visibleFrame.minY + 24
                     )
+                    targetFrame = self.clampedFrame(origin: defaultOrigin, size: self.miniSize)
                 }
-                
+
                 panel.setFrame(targetFrame, display: true)
                 panel.isMovableByWindowBackground = true
-                
-                self.hudContainer?.layer?.cornerRadius = 16.0
-                self.glassView?.layer?.cornerRadius = 16.0
-                self.glassView?.maskImage = .maskImage(cornerRadius: 16.0)
+
+                self.hudContainer?.layer?.cornerRadius = HUDLayout.miniCornerRadius * self.uiScale
+                self.glassView?.layer?.cornerRadius = HUDLayout.miniCornerRadius * self.uiScale
+                self.glassView?.maskImage = .maskImage(cornerRadius: HUDLayout.miniCornerRadius * self.uiScale)
                 
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.2
@@ -477,10 +516,10 @@ public class WindowManager: NSObject {
                 
                 panel.setFrame(targetFrame, display: true)
                 panel.isMovableByWindowBackground = false
-                
-                self.hudContainer?.layer?.cornerRadius = 24.0
-                self.glassView?.layer?.cornerRadius = 24.0
-                self.glassView?.maskImage = .maskImage(cornerRadius: 24.0)
+
+                self.hudContainer?.layer?.cornerRadius = HUDLayout.fullCornerRadius * self.uiScale
+                self.glassView?.layer?.cornerRadius = HUDLayout.fullCornerRadius * self.uiScale
+                self.glassView?.maskImage = .maskImage(cornerRadius: HUDLayout.fullCornerRadius * self.uiScale)
                 
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.2
@@ -574,12 +613,45 @@ public class WindowManager: NSObject {
         onboardingWindow?.close()
         onboardingWindow = nil
     }
+
+    /// Clamps `size` positioned at `origin` so it lies fully within the visible
+    /// frame of whichever screen the candidate frame overlaps most — falling
+    /// back to the nearest screen by center distance if it doesn't overlap any
+    /// (e.g. dragged into a gap between non-aligned monitors). This lets the
+    /// mini player move freely between monitors while never resting off an edge.
+    private func clampedFrame(origin: NSPoint, size: NSSize) -> NSRect {
+        let candidate = NSRect(origin: origin, size: size)
+
+        func intersectionArea(_ screen: NSScreen) -> CGFloat {
+            let overlap = screen.frame.intersection(candidate)
+            return overlap.isNull ? 0 : overlap.width * overlap.height
+        }
+        func distanceToCandidate(_ screen: NSScreen) -> CGFloat {
+            hypot(screen.frame.midX - candidate.midX, screen.frame.midY - candidate.midY)
+        }
+
+        let screen = NSScreen.screens
+            .filter { intersectionArea($0) > 0 }
+            .max(by: { intersectionArea($0) < intersectionArea($1) })
+            ?? NSScreen.screens.min(by: { distanceToCandidate($0) < distanceToCandidate($1) })
+            ?? NSScreen.main
+            ?? NSScreen.screens[0]
+
+        let visible = screen.visibleFrame
+        let x = max(visible.minX, min(origin.x, visible.maxX - size.width))
+        let y = max(visible.minY, min(origin.y, visible.maxY - size.height))
+        return NSRect(x: x, y: y, width: size.width, height: size.height)
+    }
 }
 
 extension WindowManager: NSWindowDelegate {
     public func windowDidMove(_ notification: Notification) {
         guard let panel = hudPanel, let vm = activeViewModel, vm.isMinimized else { return }
-        UserDefaults.standard.set(NSStringFromPoint(panel.frame.origin), forKey: "MiniPlayerOrigin")
+        let clamped = clampedFrame(origin: panel.frame.origin, size: panel.frame.size)
+        if clamped.origin != panel.frame.origin {
+            panel.setFrame(clamped, display: true)
+        }
+        UserDefaults.standard.set(NSStringFromPoint(clamped.origin), forKey: "MiniPlayerOrigin")
     }
 }
 

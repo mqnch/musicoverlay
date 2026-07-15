@@ -18,6 +18,7 @@ public class HUDViewModel: ObservableObject {
     @Published public var showMenuBarIcon: Bool = true
     @Published public var hotkeyModifier: String = "Shift" // "Shift", "Control", "Option"
     @Published public var windowOpacity: Double = 1.0
+    @Published public var uiScale: CGFloat = 1.0
 
     // MARK: - Playlist drill-down
 
@@ -70,6 +71,7 @@ public class HUDViewModel: ObservableObject {
     private let menuBarIconKey = "HUDViewModel.ShowMenuBarIcon"
     private let hotkeyModifierKey = "HUDViewModel.HotkeyModifier"
     private let windowOpacityKey = "HUDViewModel.WindowOpacity"
+    private let uiScaleKey = "HUDViewModel.UIScale"
     private var lastPlayedDates: [String: Date] = [:]
 
     /// Timestamp of the last user-initiated play/pause toggle.
@@ -100,6 +102,11 @@ public class HUDViewModel: ObservableObject {
             UserDefaults.standard.set(1.0, forKey: windowOpacityKey)
         }
         self.windowOpacity = UserDefaults.standard.double(forKey: windowOpacityKey)
+
+        if UserDefaults.standard.object(forKey: uiScaleKey) == nil {
+            UserDefaults.standard.set(1.0, forKey: uiScaleKey)
+        }
+        self.uiScale = CGFloat(UserDefaults.standard.double(forKey: uiScaleKey))
 
         stateController.$activeService
             .receive(on: DispatchQueue.main)
@@ -320,6 +327,13 @@ public class HUDViewModel: ObservableObject {
         windowOpacity = clamped
         UserDefaults.standard.set(clamped, forKey: windowOpacityKey)
         WindowManager.shared.setWindowOpacity(clamped)
+    }
+
+    public func setUIScale(_ value: CGFloat) {
+        let clamped = min(max(value, 0.8), 1.5)
+        uiScale = clamped
+        UserDefaults.standard.set(Double(clamped), forKey: uiScaleKey)
+        WindowManager.shared.setUIScale(clamped)
     }
 
     public func clearCache() {

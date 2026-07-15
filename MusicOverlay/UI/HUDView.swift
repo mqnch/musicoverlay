@@ -762,6 +762,20 @@ private struct SettingsView: View {
 
                         Divider().background(Color.white.opacity(0.1))
 
+                        // UI Scale Slider
+                        SettingSliderRow(
+                            title: "UI Scale",
+                            description: "Adjust the size of the HUD, mini player, and text.",
+                            value: Binding(
+                                get: { Double(viewModel.uiScale) },
+                                set: { viewModel.setUIScale(CGFloat($0)) }
+                            ),
+                            range: 0.8...1.5,
+                            displayValue: { "\(Int($0 * 100))%" }
+                        )
+
+                        Divider().background(Color.white.opacity(0.1))
+
                         // Hotkey Customization
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
@@ -929,6 +943,7 @@ private struct SettingSliderRow: View {
     let description: String
     @Binding var value: Double
     let range: ClosedRange<Double>
+    var displayValue: ((Double) -> String)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -946,7 +961,7 @@ private struct SettingSliderRow: View {
 
                 Spacer()
 
-                Text("\(Int((value / range.upperBound) * 100))%")
+                Text(displayValue?(value) ?? "\(Int((value / range.upperBound) * 100))%")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white.opacity(0.6))
                     .monospacedDigit()
@@ -998,7 +1013,7 @@ public struct HUDView: View {
             Spacer()
         }
         .padding(.horizontal, 12)
-        .frame(width: 240, height: 64)
+        .frame(width: HUDLayout.miniSize.width, height: HUDLayout.miniSize.height)
         .background(WindowDragArea())
         .contentShape(Rectangle())
         .onTapGesture {
@@ -1085,7 +1100,7 @@ public struct HUDView: View {
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
-        .frame(width: 620, height: 420)
+        .frame(width: HUDLayout.fullSize.width, height: HUDLayout.fullSize.height)
     }
 
     public var body: some View {
@@ -1098,7 +1113,15 @@ public struct HUDView: View {
                     .transition(.opacity.combined(with: .scale(scale: 1.05)))
             }
         }
-        .frame(width: viewModel.isMinimized ? 240 : 620, height: viewModel.isMinimized ? 64 : 420)
+        .frame(
+            width: viewModel.isMinimized ? HUDLayout.miniSize.width : HUDLayout.fullSize.width,
+            height: viewModel.isMinimized ? HUDLayout.miniSize.height : HUDLayout.fullSize.height
+        )
+        .scaleEffect(viewModel.uiScale)
+        .frame(
+            width: (viewModel.isMinimized ? HUDLayout.miniSize.width : HUDLayout.fullSize.width) * viewModel.uiScale,
+            height: (viewModel.isMinimized ? HUDLayout.miniSize.height : HUDLayout.fullSize.height) * viewModel.uiScale
+        )
         .background(Color.clear)
         .onAppear {
             WindowManager.shared.activeViewModel = viewModel
