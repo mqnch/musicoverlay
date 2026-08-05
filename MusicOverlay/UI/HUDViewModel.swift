@@ -30,7 +30,9 @@ public class HUDViewModel: ObservableObject {
 
     // MARK: - Keyboard selection
 
-    @Published public var selectionIndex: Int = 0
+    /// `nil` until the user actually navigates with the arrow keys, so no row is
+    /// highlighted by default. Reset back to `nil` whenever the list changes.
+    @Published public var selectionIndex: Int? = nil
 
     // MARK: - Playback state
 
@@ -145,7 +147,7 @@ public class HUDViewModel: ObservableObject {
     // MARK: - Search
 
     private func onSearchTextChanged() {
-        selectionIndex = 0
+        selectionIndex = nil
         
         let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
 
@@ -230,7 +232,7 @@ public class HUDViewModel: ObservableObject {
     public func openPlaylist(_ playlist: Playlist) {
         loadTracksTask?.cancel()
         selectedPlaylist = playlist
-        selectionIndex = 0
+        selectionIndex = nil
         searchText = ""
 
         if let cached = playlistTracksCache[playlist.id] {
@@ -304,7 +306,7 @@ public class HUDViewModel: ObservableObject {
         playlistTracks = []
         tracksHasMore = false
         isLoadingMoreTracks = false
-        selectionIndex = 0
+        selectionIndex = nil
         searchText = ""
     }
 
@@ -456,22 +458,33 @@ public class HUDViewModel: ObservableObject {
 
     // MARK: - Keyboard navigation
 
+    private var selectableCount: Int {
+        selectedPlaylist != nil ? displayedPlaylistTracks.count : displayedResults.count
+    }
+
     public func moveSelectionUp() {
-        if selectionIndex > 0 { selectionIndex -= 1 }
+        guard selectableCount > 0 else { return }
+        // First arrow press only reveals the highlight, on the first row.
+        guard let current = selectionIndex else { selectionIndex = 0; return }
+        if current > 0 { selectionIndex = current - 1 }
     }
-    
+
     public func moveSelectionDown() {
-        let count = selectedPlaylist != nil ? displayedPlaylistTracks.count : displayedResults.count
-        if selectionIndex < count - 1 { selectionIndex += 1 }
+        guard selectableCount > 0 else { return }
+        guard let current = selectionIndex else { selectionIndex = 0; return }
+        if current < selectableCount - 1 { selectionIndex = current + 1 }
     }
-    
+
     public func activateSelection() {
-        if let _ = selectedPlaylist {
-            guard selectionIndex < displayedPlaylistTracks.count else { return }
-            playTrack(displayedPlaylistTracks[selectionIndex])
+        // With no keyboard selection yet, activating still targets the first row
+        // (unchanged behaviour for right-arrow on a fresh search).
+        let index = selectionIndex ?? 0
+        if selectedPlaylist != nil {
+            guard index < displayedPlaylistTracks.count else { return }
+            playTrack(displayedPlaylistTracks[index])
         } else {
-            guard !displayedResults.isEmpty, selectionIndex < displayedResults.count else { return }
-            playResult(displayedResults[selectionIndex])
+            guard index < displayedResults.count else { return }
+            playResult(displayedResults[index])
         }
     }
 

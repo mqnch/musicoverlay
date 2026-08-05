@@ -722,6 +722,7 @@ extension RightPanel {
                         searchScroll.metrics = newValue
                     }
                     .onChange(of: viewModel.selectionIndex) { _, idx in
+                        guard let idx else { return }
                         withAnimation(.easeInOut(duration: 0.2)) {
                             proxy.scrollTo(idx, anchor: .center)
                         }
@@ -828,7 +829,7 @@ extension RightPanel {
                             }
                         }
                         .onChange(of: viewModel.selectionIndex) { _, idx in
-                            guard idx >= 0, idx < viewModel.displayedPlaylistTracks.count else { return }
+                            guard let idx, idx >= 0, idx < viewModel.displayedPlaylistTracks.count else { return }
                             let trackID = viewModel.displayedPlaylistTracks[idx].id
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 proxy.scrollTo(trackID, anchor: .center)
