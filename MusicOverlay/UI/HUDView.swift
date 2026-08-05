@@ -3,17 +3,95 @@ import Combine
 
 private let accentGreen = Color(red: 0.18, green: 0.8, blue: 0.44)
 
+// MARK: - UI scale
+
+/// Largest value the UI Scale slider allows (`HUDViewModel.setUIScale` clamps to
+/// this). Artwork is always requested at this scale so the pixel size — and
+/// therefore the cache key — never depends on the *current* scale. Without that,
+/// dragging the slider would invalidate every cached thumbnail and refetch the
+/// whole visible list from Spotify on every tick.
+let maxUIScale: CGFloat = 1.5
+
+private struct UIScaleKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1.0
+}
+
+extension EnvironmentValues {
+    /// Multiplier applied to every font size, frame and padding in the HUD.
+    ///
+    /// This is a *layout* scale, not `.scaleEffect`. `scaleEffect` magnifies the
+    /// finished raster, so text rendered for a 2x display gets stretched to 3x at
+    /// 1.5 and goes soft. Scaling the design values instead means text is laid
+    /// out and rendered at its true size, so it stays sharp at any scale.
+    var uiScale: CGFloat {
+        get { self[UIScaleKey.self] }
+        set { self[UIScaleKey.self] = newValue }
+    }
+}
+
+/// Gives a view `s(_:)` for scaling design constants. Conformers declare
+/// `@Environment(\.uiScale) var uiScale`.
+protocol UIScaled {
+    var uiScale: CGFloat { get }
+}
+
+extension UIScaled {
+    /// Scales a design constant (font size, padding, frame dimension).
+    func s(_ value: CGFloat) -> CGFloat { value * uiScale }
+}
+
 // MARK: - Image cache
 
-/// Shared in-memory cache of decoded artwork, keyed by URL.
+/// Shared in-memory cache of decoded artwork thumbnails.
 /// Avoids re-downloading and (more importantly) re-decoding images as
-/// LazyVStack rows recycle during scrolling.
+/// List rows recycle during scrolling.
 private enum ImageCache {
-    static let shared: NSCache<NSURL, NSImage> = {
-        let cache = NSCache<NSURL, NSImage>()
+    static let shared: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
         cache.countLimit = 1500
+        // Entries are downsampled thumbnails (tens of KB), but bound the cache in
+        // bytes too: caching full-size 640x640 artwork meant ~6.4MB per entry, so
+        // a long scroll through a big playlist could retain multiple GB and stall
+        // the app under memory pressure.
+        cache.totalCostLimit = 64 * 1024 * 1024
         return cache
     }()
+
+    /// Keyed by URL *and* render size. The same artwork is displayed at 22, 32,
+    /// 40 and 170pt; each needs its own thumbnail, and a URL-only key would let
+    /// whichever size loaded first win (a row's 32pt thumbnail could end up
+    /// upscaled in the 170pt now-playing panel).
+    static func key(_ url: URL, size: CGFloat) -> NSString {
+        "\(url.absoluteString)@\(Int(size))" as NSString
+    }
+
+    static func cost(of image: NSImage) -> Int {
+        Int(image.size.width * image.size.height) * 4
+    }
+}
+
+/// Decodes `data` directly into a bitmap no larger than `maxPixel` on a side.
+///
+/// `kCGImageSourceShouldCacheImmediately` forces the decode to happen here, on
+/// the calling thread, instead of lazily at draw time. Handing SwiftUI a
+/// full-size `NSImage` instead costs ~4ms of main-thread decode per row as it
+/// scrolls into view — which is what made scrolling freeze in bursts.
+nonisolated private func downsampledImage(from data: Data, maxPixel: CGFloat) -> NSImage? {
+    guard let source = CGImageSourceCreateWithData(
+        data as CFData,
+        [kCGImageSourceShouldCache: false] as CFDictionary
+    ) else { return nil }
+
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceShouldCacheImmediately: true,
+        kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel),
+    ]
+    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return nil
+    }
+    return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
 }
 
 /// Cache for decoded bundle (app asset) images so repeated view bodies don't
@@ -37,11 +115,14 @@ enum BundleImageCache {
 
 // MARK: - Async Image helper
 
-private struct RemoteImage: View {
+private struct RemoteImage: View, UIScaled {
+    /// Unscaled design size. The view applies `uiScale` itself, so call sites
+    /// pass a plain constant and the cache key stays scale-independent.
     let url: URL?
     let size: CGFloat
     let cornerRadius: CGFloat
 
+    @Environment(\.uiScale) var uiScale
     @State private var image: NSImage? = nil
 
     var body: some View {
@@ -55,41 +136,62 @@ private struct RemoteImage: View {
                     .fill(Color.white.opacity(0.08))
                     .overlay(Image(systemName: "music.note")
                         .foregroundColor(.white.opacity(0.3))
-                        .font(.system(size: size * 0.35)))
+                        .font(.system(size: s(size) * 0.35)))
             }
         }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .frame(width: s(size), height: s(size))
+        .clipShape(RoundedRectangle(cornerRadius: s(cornerRadius), style: .continuous))
         .task(id: url) { await load() }
     }
 
     private func load() async {
-        guard let url else { return }
+        guard let url else {
+            image = nil
+            return
+        }
+
+        // Keyed on the *unscaled* size, so changing the UI scale never
+        // invalidates the cache or triggers a refetch.
+        let key = ImageCache.key(url, size: size)
 
         // Cache hit: set immediately, no network / no re-decode.
-        if let cached = ImageCache.shared.object(forKey: url as NSURL) {
+        if let cached = ImageCache.shared.object(forKey: key) {
             if image !== cached { image = cached }
             return
         }
 
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
-              let loaded = NSImage(data: data) else { return }
-        ImageCache.shared.setObject(loaded, forKey: url as NSURL)
+        // Always decode for the largest scale the slider allows, so the same
+        // thumbnail stays sharp at every scale without ever being refetched.
+        // Read the scale factor here, on the main actor, before hopping off.
+        let maxPixel = size * maxUIScale * (NSScreen.main?.backingScaleFactor ?? 2)
+
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+
+        // Decode and downsample off the main thread so the main thread only ever
+        // composites an already-decoded thumbnail.
+        let thumbnail = await Task.detached(priority: .utility) {
+            downsampledImage(from: data, maxPixel: maxPixel)
+        }.value
+        guard let thumbnail else { return }
+
+        ImageCache.shared.setObject(thumbnail, forKey: key, cost: ImageCache.cost(of: thumbnail))
 
         // Guard against row recycling to a different URL while we were loading.
         guard self.url == url else { return }
-        image = loaded
+        image = thumbnail
     }
 }
 
 // MARK: - Liked Songs artwork
 
-private struct LikedSongsArtwork: View {
+private struct LikedSongsArtwork: View, UIScaled {
     let size: CGFloat
     let cornerRadius: CGFloat
 
+    @Environment(\.uiScale) var uiScale
+
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        RoundedRectangle(cornerRadius: s(cornerRadius), style: .continuous)
             .fill(
                 LinearGradient(
                     colors: [Color(red: 0.27, green: 0.20, blue: 0.85),
@@ -100,10 +202,10 @@ private struct LikedSongsArtwork: View {
             )
             .overlay(
                 Image(systemName: "heart.fill")
-                    .font(.system(size: size * 0.5, weight: .bold))
+                    .font(.system(size: s(size) * 0.5, weight: .bold))
                     .foregroundColor(.white)
             )
-            .frame(width: size, height: size)
+            .frame(width: s(size), height: s(size))
     }
 }
 
@@ -116,18 +218,22 @@ private func formatTime(_ seconds: Double) -> String {
 
 // MARK: - Playback Controls
 
-private struct PlaybackControlsView: View {
+private struct PlaybackControlsView: View, UIScaled {
     @ObservedObject var viewModel: HUDViewModel
+    @Environment(\.uiScale) var uiScale
+    /// Observed separately from `viewModel` so the 0.5s position updates only
+    /// re-render this view — see `HUDViewModel.PlaybackProgress`.
+    @ObservedObject var progress: HUDViewModel.PlaybackProgress
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: s(8)) {
             // ── Progress slider ──────────────────────────────────────────
-            VStack(spacing: 2) {
+            VStack(spacing: s(2)) {
                 Slider(
-                    value: $viewModel.playbackPosition,
-                    in: 0...max(1, viewModel.trackDuration),
+                    value: $progress.position,
+                    in: 0...max(1, progress.duration),
                     onEditingChanged: { editing in
-                        viewModel.isSeeking = editing
+                        progress.isSeeking = editing
                         if !editing { viewModel.commitSeek() }
                     }
                 )
@@ -137,23 +243,23 @@ private struct PlaybackControlsView: View {
                 .controlSize(.mini)
 
                 HStack {
-                    Text(formatTime(viewModel.playbackPosition))
-                        .font(.system(size: 9, design: .monospaced))
+                    Text(formatTime(progress.position))
+                        .font(.system(size: s(9), design: .monospaced))
                         .foregroundColor(.white.opacity(0.35))
                     Spacer()
-                    Text(formatTime(viewModel.trackDuration))
-                        .font(.system(size: 9, design: .monospaced))
+                    Text(formatTime(progress.duration))
+                        .font(.system(size: s(9), design: .monospaced))
                         .foregroundColor(.white.opacity(0.35))
                 }
             }
 
             // ── Row 1: Prev / Play-Pause / Next ─────────────────────────
-            HStack(spacing: 28) {
+            HStack(spacing: s(28)) {
                 Button(action: { viewModel.previousTrack() }) {
                     Image(systemName: "backward.fill")
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.system(size: s(18), weight: .medium))
                         .foregroundColor(.white.opacity(0.85))
-                        .padding(8)
+                        .padding(s(8))
                         .hoverHighlight()
                         .contentShape(Rectangle())
                 }
@@ -164,9 +270,9 @@ private struct PlaybackControlsView: View {
                     ZStack {
                         Circle()
                             .fill(Color.white.opacity(0.18))
-                            .frame(width: 44, height: 44)
+                            .frame(width: s(44), height: s(44))
                         Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: s(18), weight: .bold))
                             .foregroundColor(.white)
                             .offset(x: viewModel.isPlaying ? 0 : 0, y: viewModel.isPlaying ? 0 : -1.0)
                     }
@@ -177,9 +283,9 @@ private struct PlaybackControlsView: View {
 
                 Button(action: { viewModel.nextTrack() }) {
                     Image(systemName: "forward.fill")
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.system(size: s(18), weight: .medium))
                         .foregroundColor(.white.opacity(0.85))
-                        .padding(8)
+                        .padding(s(8))
                         .hoverHighlight()
                         .contentShape(Rectangle())
                 }
@@ -189,14 +295,14 @@ private struct PlaybackControlsView: View {
             .frame(maxWidth: .infinity)
 
             // ── Row 2: Shuffle / Repeat ──────────────────────────────────
-            HStack(spacing: 40) {
+            HStack(spacing: s(40)) {
                 Button(action: { viewModel.toggleShuffle() }) {
                     Image(systemName: "shuffle")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: s(14), weight: .medium))
                         .foregroundColor(viewModel.isShuffled
                                          ? accentGreen
                                          : .white.opacity(0.45))
-                        .padding(6)
+                        .padding(s(6))
                         .hoverHighlight()
                         .contentShape(Rectangle())
                 }
@@ -205,11 +311,11 @@ private struct PlaybackControlsView: View {
 
                 Button(action: { viewModel.cycleRepeat() }) {
                     Image(systemName: viewModel.repeatMode.systemImage)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: s(14), weight: .medium))
                         .foregroundColor(viewModel.repeatMode.isActive
                                          ? accentGreen
                                          : .white.opacity(0.45))
-                        .padding(6)
+                        .padding(s(6))
                         .hoverHighlight()
                         .contentShape(Rectangle())
                 }
@@ -224,25 +330,26 @@ private struct PlaybackControlsView: View {
 
 // MARK: - Now Playing Panel (left)
 
-private struct NowPlayingPanel: View {
+private struct NowPlayingPanel: View, UIScaled {
     let track: TrackInfo?
+    @Environment(\.uiScale) var uiScale
     @ObservedObject var viewModel: HUDViewModel
 
     var body: some View {
-        VStack(alignment: .center, spacing: 8) {
+        VStack(alignment: .center, spacing: s(8)) {
             if let track = track {
                 RemoteImage(url: track.albumArtURL, size: 170, cornerRadius: 12)
-                    .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 5)
+                    .shadow(color: .black.opacity(0.5), radius: s(12), x: 0, y: 5)
                     .frame(maxWidth: .infinity, alignment: .center)
 
-                VStack(spacing: 2) {
+                VStack(spacing: s(2)) {
                     Text(track.title)
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: s(13), weight: .bold))
                         .foregroundColor(.white)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .center)
                     Text(track.artist)
-                        .font(.system(size: 11))
+                        .font(.system(size: s(11)))
                         .foregroundColor(.white.opacity(0.55))
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -251,23 +358,24 @@ private struct NowPlayingPanel: View {
                 RemoteImage(url: nil, size: 170, cornerRadius: 12)
                     .frame(maxWidth: .infinity, alignment: .center)
                 Text("Nothing playing")
-                    .font(.system(size: 12))
+                    .font(.system(size: s(12)))
                     .foregroundColor(.white.opacity(0.35))
                     .frame(maxWidth: .infinity, alignment: .center)
             }
 
             // Controls directly below art — no Spacer pushing them down
-            PlaybackControlsView(viewModel: viewModel)
-                .padding(.top, 4)
+            PlaybackControlsView(viewModel: viewModel, progress: viewModel.progress)
+                .padding(.top, s(4))
         }
-        .frame(width: 190)
+        .frame(width: s(190))
     }
 }
 
 // MARK: - Search Result Row
 
-private struct SearchResultRow: View {
+private struct SearchResultRow: View, UIScaled {
     @EnvironmentObject var stateController: StateController
+    @Environment(\.uiScale) var uiScale
     let result: SearchResult
     let isSelected: Bool
 
@@ -279,29 +387,29 @@ private struct SearchResultRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: s(10)) {
             switch result {
             case .track(let track):
                 Image(systemName: "music.note")
-                    .font(.system(size: 11))
+                    .font(.system(size: s(11)))
                     .foregroundColor(.white.opacity(0.4))
-                    .frame(width: 32, height: 32)
+                    .frame(width: s(32), height: s(32))
                     .background(Color.white.opacity(0.07))
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: s(5), style: .continuous))
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: s(2)) {
                     Text(track.title)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: s(13), weight: .medium))
                         .foregroundColor(isPlaying ? accentGreen : .white)
                         .lineLimit(1)
                     Text(track.artist)
-                        .font(.system(size: 11))
+                        .font(.system(size: s(11)))
                         .foregroundColor(.white.opacity(0.5))
                         .lineLimit(1)
                 }
                 Spacer()
                 Text(track.durationString)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: s(11), design: .monospaced))
                     .foregroundColor(.white.opacity(0.3))
 
             case .playlist(let playlist):
@@ -311,27 +419,27 @@ private struct SearchResultRow: View {
                     RemoteImage(url: playlist.imageURL, size: 32, cornerRadius: 5)
                 }
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: s(2)) {
                     Text(playlist.name)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: s(13), weight: .medium))
                         .foregroundColor(.white)
                         .lineLimit(1)
                     if let count = playlist.trackCount {
                         Text("\(count) tracks")
-                            .font(.system(size: 11))
+                            .font(.system(size: s(11)))
                             .foregroundColor(.white.opacity(0.5))
                     }
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: s(10), weight: .semibold))
                     .foregroundColor(.white.opacity(0.25))
             }
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 10)
+        .padding(.vertical, s(8))
+        .padding(.horizontal, s(10))
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: s(10), style: .continuous)
                 .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
         )
         .hoverHighlight(.background)
@@ -340,8 +448,9 @@ private struct SearchResultRow: View {
 
 // MARK: - Playlist Track Row
 
-private struct PlaylistTrackRow: View {
+private struct PlaylistTrackRow: View, UIScaled {
     @EnvironmentObject var stateController: StateController
+    @Environment(\.uiScale) var uiScale
     let track: SpotifyTrack
     let index: Int
     let isSelected: Bool
@@ -351,35 +460,35 @@ private struct PlaylistTrackRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: s(10)) {
             Text("\(index + 1)")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: s(11), design: .monospaced))
                 .foregroundColor(isPlaying ? accentGreen : .white.opacity(0.25))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(minWidth: 18, alignment: .trailing)
+                .frame(minWidth: s(18), alignment: .trailing)
 
             RemoteImage(url: track.albumArtURL, size: 32, cornerRadius: 4)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: s(2)) {
                 Text(track.title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: s(13), weight: .medium))
                     .foregroundColor(isPlaying ? accentGreen : .white)
                     .lineLimit(1)
                 Text(track.artist)
-                    .font(.system(size: 11))
+                    .font(.system(size: s(11)))
                     .foregroundColor(.white.opacity(0.5))
                     .lineLimit(1)
             }
             Spacer()
             Text(track.durationString)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: s(11), design: .monospaced))
                 .foregroundColor(.white.opacity(0.3))
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 10)
+        .padding(.vertical, s(8))
+        .padding(.horizontal, s(10))
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: s(10), style: .continuous)
                 .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
         )
         .contentShape(Rectangle())
@@ -389,14 +498,11 @@ private struct PlaylistTrackRow: View {
 
 // MARK: - Right Panel
 
-private struct RightPanel: View {
+private struct RightPanel: View, UIScaled {
     @ObservedObject var viewModel: HUDViewModel
+    @Environment(\.uiScale) var uiScale
     @State private var searchScroll = ScrollController()
-    @State private var searchDragOffset: CGFloat? = nil
-    @State private var searchScrollPosition = ScrollPosition(edge: .top)
     @State private var playlistScroll = ScrollController()
-    @State private var playlistDragOffset: CGFloat? = nil
-    @State private var playlistScrollPosition = ScrollPosition(edge: .top)
 
     var body: some View {
         if viewModel.selectedPlaylist != nil {
@@ -415,97 +521,140 @@ private struct ScrollMetrics: Equatable {
     var scrollOffset: CGFloat = 0
 }
 
-/// Holds live scroll metrics. Kept as a reference type (held via `@State`, not
-/// `@StateObject`) so that per-frame metric updates only re-render the
-/// `CustomScrollbar` that observes it — NOT the parent view that builds the
-/// List. This prevents the list from being rebuilt on every scroll frame,
-/// which is what made scrolling stutter/jump.
+/// Holds live scroll metrics plus a handle on the backing `NSScrollView`. Kept as
+/// a reference type (held via `@State`, not `@StateObject`) so that per-frame
+/// metric updates only re-render the `CustomScrollbar` that observes it — NOT the
+/// parent view that builds the List. This prevents the list from being rebuilt on
+/// every scroll frame, which is what made scrolling stutter/jump.
 private final class ScrollController: ObservableObject {
     @Published var metrics = ScrollMetrics()
+
+    /// Captured by `ScrollViewConfigurator`. Deliberately *not* `@Published`:
+    /// wiring it up must never trigger a SwiftUI update.
+    weak var scrollView: NSScrollView?
+
+    /// Scrolls the clip view to an absolute content offset.
+    ///
+    /// This drives AppKit directly instead of going through SwiftUI's
+    /// `.scrollPosition(_:)`. A `ScrollPosition` binding lives in the enclosing
+    /// view's `@State`, so SwiftUI both writes to it as the user scrolls *and*
+    /// re-applies the stored offset whenever the content changes — which is what
+    /// made scrolling snap, most visibly on a trackpad.
+    func scroll(toOffsetY y: CGFloat) {
+        guard let scrollView else { return }
+        let clipView = scrollView.contentView
+        let documentHeight = scrollView.documentView?.frame.height ?? 0
+        let maxY = max(0, documentHeight - clipView.bounds.height)
+        var origin = clipView.bounds.origin
+        origin.y = min(maxY, max(0, y))
+        clipView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(clipView)
+    }
 }
 
-/// Hides the native (legacy) scroller of the enclosing NSScrollView so only the
-/// custom thin scrollbar is visible. Placed as a zero-size row inside a List so
-/// its backing view lives inside the scroll view's document hierarchy.
-private struct ScrollerHider: NSViewRepresentable {
+/// Captures the enclosing `NSScrollView` (so the custom scrollbar can scroll it
+/// directly) and hides the native legacy scroller. Placed as a zero-size view
+/// inside the scrolled content so its backing view lives in the scroll view's
+/// document hierarchy and `enclosingScrollView` resolves.
+///
+/// The configuration runs once per backing scroll view, never on every update:
+/// assigning `hasVerticalScroller` / `scrollerStyle` re-tiles the scroll view,
+/// and doing that mid-gesture visibly interrupts trackpad scrolling.
+private struct ScrollViewConfigurator: NSViewRepresentable {
+    let controller: ScrollController
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { Self.hideScroller(from: view) }
+        // The backing NSScrollView isn't in the hierarchy yet during makeNSView,
+        // so resolve it one runloop turn later.
+        DispatchQueue.main.async { configure(view, retriesLeft: 5) }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { Self.hideScroller(from: nsView) }
+        // Only re-resolve if we lost the handle (e.g. the List rebuilt its
+        // backing scroll view). Otherwise this is a no-op.
+        guard controller.scrollView == nil else { return }
+        DispatchQueue.main.async { configure(nsView, retriesLeft: 5) }
     }
 
-    private static func hideScroller(from view: NSView) {
-        guard let scrollView = view.enclosingScrollView else { return }
+    /// Resolves the enclosing scroll view, retrying a few frames if SwiftUI
+    /// hasn't attached this view to the document hierarchy yet. Without the
+    /// retry a missed first attempt would leave the scrollbar undraggable until
+    /// the next List update — wheel and trackpad scrolling would still work, so
+    /// the failure would be easy to miss.
+    private func configure(_ view: NSView, retriesLeft: Int) {
+        guard let scrollView = view.enclosingScrollView else {
+            guard retriesLeft > 0 else { return }
+            DispatchQueue.main.async { configure(view, retriesLeft: retriesLeft - 1) }
+            return
+        }
+        controller.scrollView = scrollView
+        guard scrollView.hasVerticalScroller || scrollView.hasHorizontalScroller else { return }
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
-        scrollView.scrollerStyle = .overlay
-        scrollView.verticalScrollElasticity = .allowed
     }
 }
 
-private struct CustomScrollbar: View {
+/// Thin overlay scrollbar. Reads metrics published by `onScrollGeometryChange`
+/// and scrolls via `ScrollController.scroll(toOffsetY:)`, so nothing it does
+/// feeds back into the scroll view's own view state.
+private struct CustomScrollbar: View, UIScaled {
     @ObservedObject var controller: ScrollController
-    @Binding var dragOffset: CGFloat?
+    @Environment(\.uiScale) var uiScale
 
-    private var metrics: ScrollMetrics { controller.metrics }
+    /// Distance from the top of the thumb to where the drag started, so dragging
+    /// tracks the grab point instead of snapping the thumb's centre to the cursor.
+    @State private var grabOffset: CGFloat?
 
     var body: some View {
         GeometryReader { geo in
+            let metrics = controller.metrics
             let trackHeight = geo.size.height
-            let ratio = metrics.viewportHeight / max(1, metrics.contentHeight)
-            let show = ratio < 1.0 && metrics.contentHeight > 0
-            
-            ZStack(alignment: .top) {
-                // ── Wider hit area ───────────────────────────────────────────
-                Color.white.opacity(0.001)
-                    .frame(width: 16)
-                    .contentShape(Rectangle())
-                    .onTapGesture { } 
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                let thumbHeight = max(20, trackHeight * ratio)
-                                let thumbRange = trackHeight - thumbHeight
-                                let scrollRange = metrics.contentHeight - metrics.viewportHeight
-                                
-                                let deltaY = value.location.y - (thumbHeight / 2)
-                                let newProgress = max(0, min(1, deltaY / max(1, thumbRange)))
-                                dragOffset = newProgress * scrollRange
-                            }
-                            .onEnded { _ in
-                                dragOffset = nil
-                            }
-                    )
+            let scrollRange = metrics.contentHeight - metrics.viewportHeight
+            let scrollable = scrollRange > 0.5 && metrics.contentHeight > 0
+            let thumbHeight = max(s(20), trackHeight * (metrics.viewportHeight / max(1, metrics.contentHeight)))
+            let thumbRange = max(1, trackHeight - thumbHeight)
+            let thumbOffset = (metrics.scrollOffset / max(1, scrollRange)) * thumbRange
 
+            ZStack(alignment: .top) {
                 // ── Gutter ───────────────────────────────────────────────────
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: s(2))
                     .fill(Color.white.opacity(0.05))
-                    .frame(width: 4)
-                    .padding(.horizontal, 6)
-                
+                    .frame(width: s(4))
+
                 // ── Thumb ────────────────────────────────────────────────────
-                if show {
-                    let thumbHeight = max(20, trackHeight * ratio)
-                    let scrollRange = metrics.contentHeight - metrics.viewportHeight
-                    let thumbRange = trackHeight - thumbHeight
-                    let progress = metrics.scrollOffset / max(1, scrollRange)
-                    let thumbOffset = progress * thumbRange
-                    
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.white.opacity(0.3))
-                        .frame(width: 4, height: thumbHeight)
-                        .offset(y: thumbOffset)
-                        .allowsHitTesting(false)
-                }
+                RoundedRectangle(cornerRadius: s(2))
+                    .fill(Color.white.opacity(0.3))
+                    .frame(width: s(4), height: thumbHeight)
+                    .offset(y: thumbOffset)
             }
+            .frame(width: s(16))
+            .contentShape(Rectangle())
+            .opacity(scrollable ? 1 : 0)
+            .animation(.easeInOut(duration: 0.2), value: scrollable)
+            .allowsHitTesting(scrollable)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let grab: CGFloat
+                        if let existing = grabOffset {
+                            grab = existing
+                        } else {
+                            let start = value.startLocation.y
+                            let onThumb = start >= thumbOffset && start <= thumbOffset + thumbHeight
+                            // Pressing the gutter jumps the thumb's centre to the
+                            // cursor; pressing the thumb keeps it under the finger.
+                            grab = onThumb ? start - thumbOffset : thumbHeight / 2
+                            grabOffset = grab
+                        }
+                        let progress = min(1, max(0, (value.location.y - grab) / thumbRange))
+                        controller.scroll(toOffsetY: progress * scrollRange)
+                    }
+                    .onEnded { _ in grabOffset = nil }
+            )
         }
-        .frame(width: 16)
-        .opacity(metrics.viewportHeight / max(1, metrics.contentHeight) < 1.0 ? 1 : 0)
-        .animation(.easeInOut(duration: 0.2), value: metrics.viewportHeight / max(1, metrics.contentHeight) < 1.0)
+        .frame(width: s(16))
     }
 }
 
@@ -532,36 +681,37 @@ extension RightPanel {
     private var searchResultsView: some View {
         if viewModel.isSearching {
             HStack {
-                ProgressView().scaleEffect(0.7).padding(.vertical, 8)
+                ProgressView().scaleEffect(0.7).padding(.vertical, s(8))
                 Spacer()
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, s(10))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else if viewModel.displayedResults.isEmpty {
             Text(viewModel.searchText.isEmpty ? "Your playlists will appear here" : "No results")
-                .font(.system(size: 13))
+                .font(.system(size: s(13)))
                 .foregroundColor(.white.opacity(0.3))
-                .padding(.top, 20)
+                .padding(.top, s(20))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             ZStack(alignment: .trailing) {
                 ScrollViewReader { proxy in
                     List {
-                        ScrollerHider().frame(height: 0).plainListRow()
+                        ScrollViewConfigurator(controller: searchScroll)
+                            .frame(height: s(0))
+                            .plainListRow(uiScale)
                         ForEach(0..<viewModel.displayedResults.count, id: \.self) { index in
                             let result = viewModel.displayedResults[index]
                             SearchResultRow(result: result, isSelected: index == viewModel.selectionIndex)
                                 .id(index)
                                 .contentShape(Rectangle())
                                 .onTapGesture { viewModel.playResult(result) }
-                                .plainListRow()
+                                .plainListRow(uiScale)
                         }
                     }
                     .listStyle(.plain)
                     .environment(\.defaultMinListRowHeight, 0)
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
-                    .scrollPosition($searchScrollPosition)
                     .onScrollGeometryChange(for: ScrollMetrics.self) { geo in
                         ScrollMetrics(
                             contentHeight: geo.contentSize.height,
@@ -571,9 +721,6 @@ extension RightPanel {
                     } action: { _, newValue in
                         searchScroll.metrics = newValue
                     }
-                    .onChange(of: searchDragOffset) { _, newValue in
-                        if let y = newValue { searchScrollPosition.scrollTo(y: y) }
-                    }
                     .onChange(of: viewModel.selectionIndex) { _, idx in
                         withAnimation(.easeInOut(duration: 0.2)) {
                             proxy.scrollTo(idx, anchor: .center)
@@ -581,22 +728,22 @@ extension RightPanel {
                     }
                 }
 
-                CustomScrollbar(controller: searchScroll, dragOffset: $searchDragOffset)
-                    .padding(.vertical, 4)
-                    .padding(.trailing, 2)
+                CustomScrollbar(controller: searchScroll)
+                    .padding(.vertical, s(4))
+                    .padding(.trailing, s(2))
             }
         }
     }
 
     @ViewBuilder
     private var playlistDetailView: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
+        VStack(spacing: s(0)) {
+            HStack(spacing: s(8)) {
                 Button(action: { viewModel.closePlaylist() }) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: s(16), weight: .bold))
                         .foregroundColor(.white.opacity(0.8))
-                        .padding(8)
+                        .padding(s(8))
                         .hoverHighlight()
                         .contentShape(Rectangle())
                 }
@@ -609,18 +756,18 @@ extension RightPanel {
                         RemoteImage(url: playlist.imageURL, size: 22, cornerRadius: 3)
                     }
                     Text(playlist.name)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: s(14), weight: .semibold))
                         .foregroundColor(.white)
                         .lineLimit(1)
                 }
                 Spacer()
             }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 8)
+            .padding(.horizontal, s(10))
+            .padding(.bottom, s(8))
 
             Divider()
                 .background(Color.white.opacity(0.08))
-                .padding(.bottom, 4)
+                .padding(.bottom, s(4))
 
             if viewModel.isLoadingTracks {
                 Spacer()
@@ -629,21 +776,23 @@ extension RightPanel {
             } else if viewModel.displayedPlaylistTracks.isEmpty {
                 Spacer()
                 Text("No tracks found")
-                    .font(.system(size: 13))
+                    .font(.system(size: s(13)))
                     .foregroundColor(.white.opacity(0.3))
                 Spacer()
             } else {
                 ZStack(alignment: .trailing) {
                     ScrollViewReader { proxy in
                         List {
-                            ScrollerHider().frame(height: 0).plainListRow()
+                            ScrollViewConfigurator(controller: playlistScroll)
+                                .frame(height: s(0))
+                                .plainListRow(uiScale)
                             ForEach(Array(viewModel.displayedPlaylistTracks.enumerated()), id: \.element.id) { index, track in
                                 PlaylistTrackRow(track: track, index: index, isSelected: index == viewModel.selectionIndex)
                                     .onTapGesture {
                                         viewModel.playTrack(track)
                                     }
                                     .contentShape(Rectangle())
-                                    .plainListRow()
+                                    .plainListRow(uiScale)
                             }
 
                             if viewModel.tracksHasMore {
@@ -652,16 +801,15 @@ extension RightPanel {
                                     ProgressView().scaleEffect(0.6)
                                     Spacer()
                                 }
-                                .frame(height: 36)
+                                .frame(height: s(36))
                                 .onAppear { viewModel.loadMoreTracks() }
-                                .plainListRow()
+                                .plainListRow(uiScale)
                             }
                         }
                         .listStyle(.plain)
                         .environment(\.defaultMinListRowHeight, 0)
                         .scrollContentBackground(.hidden)
                         .scrollIndicators(.never)
-                        .scrollPosition($playlistScrollPosition)
                         .onScrollGeometryChange(for: ScrollMetrics.self) { geo in
                             ScrollMetrics(
                                 contentHeight: geo.contentSize.height,
@@ -671,13 +819,13 @@ extension RightPanel {
                         } action: { _, newValue in
                             playlistScroll.metrics = newValue
                             // Prefetch the next page as the user nears the bottom.
+                            // This runs on every scroll frame, so check the cheap
+                            // local flags before calling into the view model.
+                            guard viewModel.tracksHasMore, !viewModel.isLoadingMoreTracks else { return }
                             let distanceToBottom = newValue.contentHeight - (newValue.scrollOffset + newValue.viewportHeight)
                             if distanceToBottom < 600 {
                                 viewModel.loadMoreTracks()
                             }
-                        }
-                        .onChange(of: playlistDragOffset) { _, newValue in
-                            if let y = newValue { playlistScrollPosition.scrollTo(y: y) }
                         }
                         .onChange(of: viewModel.selectionIndex) { _, idx in
                             guard idx >= 0, idx < viewModel.displayedPlaylistTracks.count else { return }
@@ -688,9 +836,9 @@ extension RightPanel {
                         }
                     }
 
-                    CustomScrollbar(controller: playlistScroll, dragOffset: $playlistDragOffset)
-                        .padding(.vertical, 4)
-                        .padding(.trailing, 2)
+                    CustomScrollbar(controller: playlistScroll)
+                        .padding(.vertical, s(4))
+                        .padding(.trailing, s(2))
                 }
             }
         }
@@ -699,31 +847,30 @@ extension RightPanel {
 
 // MARK: - Settings View
 
-private struct SettingsView: View {
+private struct SettingsView: View, UIScaled {
     @ObservedObject var viewModel: HUDViewModel
+    @Environment(\.uiScale) var uiScale
     @EnvironmentObject var stateController: StateController
     @State private var scrollController = ScrollController()
-    @State private var dragOffset: CGFloat? = nil
-    @State private var scrollPosition = ScrollPosition(edge: .top)
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: s(0)) {
             ZStack(alignment: .trailing) {
                 ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: s(16)) {
+                        HStack(spacing: s(12)) {
                             if let nsImage = BundleImageCache.image(resource: "logo", ext: "png") {
                                 Image(nsImage: nsImage)
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
-                                    .frame(width: 32, height: 32)
+                                    .frame(width: s(32), height: s(32))
                             }
 
                             Text("Settings")
-                                .font(.system(size: 20, weight: .bold))
+                                .font(.system(size: s(20), weight: .bold))
                                 .foregroundColor(.white)
                         }
-                        .padding(.bottom, 4)
+                        .padding(.bottom, s(4))
 
                         // Mini Player Toggle
                         SettingRow(
@@ -777,13 +924,13 @@ private struct SettingsView: View {
                         Divider().background(Color.white.opacity(0.1))
 
                         // Hotkey Customization
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: s(12)) {
+                            VStack(alignment: .leading, spacing: s(4)) {
                                 Text("Hotkey Gesture")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(size: s(14), weight: .semibold))
                                     .foregroundColor(.white)
                                 Text("Double-tap to toggle HUD")
-                                    .font(.system(size: 12))
+                                    .font(.system(size: s(12)))
                                     .foregroundColor(.white.opacity(0.5))
                             }
                             Spacer()
@@ -792,56 +939,56 @@ private struct SettingsView: View {
                                     Button(mod) { viewModel.updateHotkeyModifier(mod) }
                                 }
                             } label: {
-                                HStack(spacing: 4) {
+                                HStack(spacing: s(4)) {
                                     Text(viewModel.hotkeyModifier)
                                     Image(systemName: "chevron.up.chevron.down")
-                                        .font(.system(size: 10))
+                                        .font(.system(size: s(10)))
                                 }
-                                .font(.system(size: 13, weight: .medium))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
+                                .font(.system(size: s(13), weight: .medium))
+                                .padding(.horizontal, s(10))
+                                .padding(.vertical, s(6))
                                 .background(Color.white.opacity(0.1))
-                                .cornerRadius(8)
+                                .cornerRadius(s(8))
                             }
                             .menuStyle(.button)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, s(4))
 
                         Divider().background(Color.white.opacity(0.1))
 
                         // Service Info & Actions
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: s(12)) {
+                            VStack(alignment: .leading, spacing: s(4)) {
                                 Text("Active Service")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(size: s(14), weight: .semibold))
                                     .foregroundColor(.white)
                                 Text(stateController.activeService?.name ?? "None")
-                                    .font(.system(size: 12))
+                                    .font(.system(size: s(12)))
                                     .foregroundColor(.white.opacity(0.5))
                             }
                             Spacer()
 
-                            HStack(spacing: 10) {
+                            HStack(spacing: s(10)) {
                                 Button(action: { viewModel.clearCache() }) {
-                                    HStack(spacing: 6) {
+                                    HStack(spacing: s(6)) {
                                         Image(systemName: "arrow.clockwise")
                                         Text("Clear Cache")
                                     }
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: s(13), weight: .medium))
                                     .foregroundColor(.white.opacity(0.8))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, s(12))
+                                    .padding(.vertical, s(8))
                                     .background(Color.white.opacity(0.1))
-                                    .cornerRadius(8)
+                                    .cornerRadius(s(8))
                                     .hoverHighlight(.background)
                                 }
                                 .buttonStyle(.plain)
 
                                 Button(action: { viewModel.logout() }) {
                                     Image(systemName: "rectangle.portrait.and.arrow.right")
-                                        .font(.system(size: 14, weight: .bold))
+                                        .font(.system(size: s(14), weight: .bold))
                                         .foregroundColor(.red.opacity(0.7))
-                                        .padding(10)
+                                        .padding(s(10))
                                         .background(Color.red.opacity(0.15))
                                         .clipShape(Circle())
                                         .hoverHighlight()
@@ -850,14 +997,19 @@ private struct SettingsView: View {
                                 .help("Logout")
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, s(4))
                     }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 8)
+                    .padding(.trailing, s(20))
+                    .padding(.bottom, s(8))
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    // Zero-size probe inside the scrolled content so the
+                    // configurator can resolve the backing NSScrollView.
+                    .overlay(alignment: .topLeading) {
+                        ScrollViewConfigurator(controller: scrollController)
+                            .frame(width: s(0), height: s(0))
+                    }
                 }
                 .scrollIndicators(.never)
-                .scrollPosition($scrollPosition)
                 .onScrollGeometryChange(for: ScrollMetrics.self) { geo in
                     ScrollMetrics(
                         contentHeight: geo.contentSize.height,
@@ -867,62 +1019,58 @@ private struct SettingsView: View {
                 } action: { _, newValue in
                     scrollController.metrics = newValue
                 }
-                .onChange(of: dragOffset) { _, newValue in
-                    if let y = newValue {
-                        scrollPosition.scrollTo(y: y)
-                    }
-                }
 
-                CustomScrollbar(controller: scrollController, dragOffset: $dragOffset)
-                    .padding(.vertical, 4)
-                    .padding(.trailing, 2)
+                CustomScrollbar(controller: scrollController)
+                    .padding(.vertical, s(4))
+                    .padding(.trailing, s(2))
             }
             .frame(maxHeight: .infinity)
 
             HStack {
                 Text("MusicOverlay v1.0.0")
-                    .font(.system(size: 10))
+                    .font(.system(size: s(10)))
                     .foregroundColor(.white.opacity(0.2))
                 
                 Spacer()
                 
                 Button(action: { viewModel.quitApp() }) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: s(6)) {
                         Image(systemName: "power")
                         Text("Quit App")
                     }
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: s(11), weight: .bold))
                     .foregroundColor(.white.opacity(0.4))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, s(10))
+                    .padding(.vertical, s(6))
                     .background(Color.white.opacity(0.05))
-                    .cornerRadius(6)
+                    .cornerRadius(s(6))
                     .hoverHighlight(.background)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.top, 12)
+            .padding(.top, s(12))
         }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 24)
-        .padding(.top, 16)
+        .padding(.horizontal, s(24))
+        .padding(.bottom, s(24))
+        .padding(.top, s(16))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
-private struct SettingRow: View {
+private struct SettingRow: View, UIScaled {
     let title: String
+    @Environment(\.uiScale) var uiScale
     let description: String
     @Binding var isOn: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .top, spacing: s(16)) {
+            VStack(alignment: .leading, spacing: s(4)) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: s(14), weight: .semibold))
                     .foregroundColor(.white)
                 Text(description)
-                    .font(.system(size: 12))
+                    .font(.system(size: s(12)))
                     .foregroundColor(.white.opacity(0.5))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -938,22 +1086,23 @@ private struct SettingRow: View {
     }
 }
 
-private struct SettingSliderRow: View {
+private struct SettingSliderRow: View, UIScaled {
     let title: String
+    @Environment(\.uiScale) var uiScale
     let description: String
     @Binding var value: Double
     let range: ClosedRange<Double>
     var displayValue: ((Double) -> String)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: s(8)) {
+            HStack(alignment: .top, spacing: s(16)) {
+                VStack(alignment: .leading, spacing: s(4)) {
                     Text(title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: s(14), weight: .semibold))
                         .foregroundColor(.white)
                     Text(description)
-                        .font(.system(size: 12))
+                        .font(.system(size: s(12)))
                         .foregroundColor(.white.opacity(0.5))
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -962,7 +1111,7 @@ private struct SettingSliderRow: View {
                 Spacer()
 
                 Text(displayValue?(value) ?? "\(Int((value / range.upperBound) * 100))%")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: s(12), weight: .medium))
                     .foregroundColor(.white.opacity(0.6))
                     .monospacedDigit()
             }
@@ -978,8 +1127,12 @@ private struct SettingSliderRow: View {
 
 // MARK: - HUDView
 
-public struct HUDView: View {
+public struct HUDView: View, UIScaled {
     @EnvironmentObject var stateController: StateController
+
+    /// The root is the *source* of the scale, so it reads the view model rather
+    /// than the environment (`.environment(_:_:)` only reaches descendants).
+    var uiScale: CGFloat { viewModel.uiScale }
     @StateObject private var viewModel: HUDViewModel
     @FocusState private var isSearchFocused: Bool
 
@@ -991,29 +1144,29 @@ public struct HUDView: View {
     }
 
     private var miniPlayerView: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: s(12)) {
             if let track = stateController.currentTrack {
                 RemoteImage(url: track.albumArtURL, size: 40, cornerRadius: 8)
                 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: s(2)) {
                     Text(track.title)
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: s(13), weight: .bold))
                         .foregroundColor(.white)
                         .lineLimit(1)
                     Text(track.artist)
-                        .font(.system(size: 12))
+                        .font(.system(size: s(12)))
                         .foregroundColor(.white.opacity(0.7))
                         .lineLimit(1)
                 }
             } else {
                 Text("Nothing playing")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: s(13), weight: .medium))
                     .foregroundColor(.white.opacity(0.4))
             }
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .frame(width: HUDLayout.miniSize.width, height: HUDLayout.miniSize.height)
+        .padding(.horizontal, s(12))
+        .frame(width: s(HUDLayout.miniSize.width), height: s(HUDLayout.miniSize.height))
         .background(WindowDragArea())
         .contentShape(Rectangle())
         .onTapGesture {
@@ -1022,85 +1175,85 @@ public struct HUDView: View {
     }
 
     private var fullHUDView: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
+        VStack(spacing: s(0)) {
+            HStack(spacing: s(12)) {
                 // ── Search bar ──────────────────────────────────────────────
-                HStack(spacing: 10) {
+                HStack(spacing: s(10)) {
                     if viewModel.isSearching {
-                        ProgressView().scaleEffect(0.65).frame(width: 16)
+                        ProgressView().scaleEffect(0.65).frame(width: s(16))
                     } else {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.system(size: s(15), weight: .medium))
                             .foregroundColor(.white.opacity(0.4))
                     }
 
                     TextField("Search playlists/songs…", text: $viewModel.searchText)
                         .textFieldStyle(.plain)
                         .focused($isSearchFocused)
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: s(17), weight: .medium))
                         .foregroundColor(.white)
 
                     if !viewModel.searchText.isEmpty {
                         Button(action: { viewModel.searchText = "" }) {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundColor(.white.opacity(0.3))
-                                .font(.system(size: 14))
+                                .font(.system(size: s(14)))
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.horizontal, s(16))
+                .padding(.vertical, s(12))
                 .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: s(14), style: .continuous)
                         .fill(.ultraThinMaterial)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                            RoundedRectangle(cornerRadius: s(14), style: .continuous)
+                                .stroke(Color.white.opacity(0.15), lineWidth: s(0.5))
                         )
                 )
 
                 // ── Settings Button ─────────────────────────────────────────
                 Button(action: { viewModel.toggleSettings() }) {
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 18))
+                        .font(.system(size: s(18)))
                         .foregroundColor(viewModel.showSettings ? .white : .white.opacity(0.6))
-                        .offset(y: -1) // Move up one
-                        .frame(width: 44, height: 44)
+                        .offset(y: s(-1)) // Move up one
+                        .frame(width: s(44), height: s(44))
                         .contentShape(Rectangle())
                         .hoverHighlight()
                 }
                 .buttonStyle(.plain)
                 .help("Settings")
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 10)
+            .padding(.horizontal, s(16))
+            .padding(.top, s(14))
+            .padding(.bottom, s(10))
 
             // ── Main Content ────────────────────────────────────────────
             if viewModel.showSettings {
                 SettingsView(viewModel: viewModel)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
-                HStack(alignment: .top, spacing: 0) {
+                HStack(alignment: .top, spacing: s(0)) {
                     NowPlayingPanel(track: stateController.currentTrack, viewModel: viewModel)
-                        .padding(.leading, 16)
-                        .padding(.trailing, 12)
+                        .padding(.leading, s(16))
+                        .padding(.trailing, s(12))
 
                     Rectangle()
                         .fill(Color.white.opacity(0.1))
-                        .frame(width: 0.5)
-                        .padding(.vertical, 12)
+                        .frame(width: s(0.5))
+                        .padding(.vertical, s(12))
 
                     RightPanel(viewModel: viewModel)
-                        .padding(.leading, 12)
-                        .padding(.trailing, 8)
+                        .padding(.leading, s(12))
+                        .padding(.trailing, s(8))
                 }
-                .padding(.bottom, 14)
+                .padding(.bottom, s(14))
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
-        .frame(width: HUDLayout.fullSize.width, height: HUDLayout.fullSize.height)
+        .frame(width: s(HUDLayout.fullSize.width), height: s(HUDLayout.fullSize.height))
     }
 
     public var body: some View {
@@ -1113,14 +1266,14 @@ public struct HUDView: View {
                     .transition(.opacity.combined(with: .scale(scale: 1.05)))
             }
         }
+        // Real layout scale: every design constant below is multiplied by
+        // `uiScale` via `s(_:)`, so the tree lays out at its true size and text
+        // renders sharp. Previously this was `.scaleEffect`, which magnified the
+        // finished raster and made everything soft above 1.0.
+        .environment(\.uiScale, viewModel.uiScale)
         .frame(
-            width: viewModel.isMinimized ? HUDLayout.miniSize.width : HUDLayout.fullSize.width,
-            height: viewModel.isMinimized ? HUDLayout.miniSize.height : HUDLayout.fullSize.height
-        )
-        .scaleEffect(viewModel.uiScale)
-        .frame(
-            width: (viewModel.isMinimized ? HUDLayout.miniSize.width : HUDLayout.fullSize.width) * viewModel.uiScale,
-            height: (viewModel.isMinimized ? HUDLayout.miniSize.height : HUDLayout.fullSize.height) * viewModel.uiScale
+            width: s(viewModel.isMinimized ? HUDLayout.miniSize.width : HUDLayout.fullSize.width),
+            height: s(viewModel.isMinimized ? HUDLayout.miniSize.height : HUDLayout.fullSize.height)
         )
         .background(Color.clear)
         .onAppear {
@@ -1139,7 +1292,7 @@ public struct HUDView: View {
                 if !viewModel.isMinimized {
                     WindowDragArea()
                     Color.black
-                        .padding(12)
+                        .padding(s(12))
                         .blendMode(.destinationOut)
                 }
             }
@@ -1168,14 +1321,15 @@ enum HoverStyle {
     case icon, background
 }
 
-private struct HoverHighlight: ViewModifier {
+private struct HoverHighlight: ViewModifier, UIScaled {
     let style: HoverStyle
+    @Environment(\.uiScale) var uiScale
     @State private var isHovering = false
 
     func body(content: Content) -> some View {
         content
             .background(style == .background && isHovering ? Color.white.opacity(0.1) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: s(8), style: .continuous))
             .brightness(style == .icon && isHovering ? 0.25 : 0)
             .onHover { hovering in
                 isHovering = hovering
@@ -1196,9 +1350,11 @@ extension View {
     /// Strips List's default chrome (insets, background, separators) so custom
     /// rows render edge-to-edge with a small vertical gap and room for the
     /// overlaid custom scrollbar on the trailing edge.
-    func plainListRow() -> some View {
+    /// - Parameter scale: the ambient `uiScale`; this is a `View` extension so it
+    ///   cannot read the environment itself.
+    func plainListRow(_ scale: CGFloat = 1) -> some View {
         self
-            .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 20))
+            .listRowInsets(EdgeInsets(top: 1 * scale, leading: 0, bottom: 1 * scale, trailing: 20 * scale))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
     }

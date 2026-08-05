@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Playlist: Identifiable, Equatable {
+nonisolated public struct Playlist: Identifiable, Equatable {
     /// Sentinel id for the synthetic "Liked Songs" pseudo-playlist.
     public static let likedSongsID = "musicoverlay.liked"
 

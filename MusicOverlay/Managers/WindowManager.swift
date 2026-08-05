@@ -46,10 +46,6 @@ public class WindowManager: NSObject {
     /// Registered by HUDView so the keyboard monitor can route commands.
     public weak var activeViewModel: HUDViewModel?
 
-    /// One smooth-scroll engine per `NSScrollView`, keyed by identity. Lets us
-    /// normalize jittery mouse-wheel events into a consistent eased scroll.
-    private var scrollEngines: [ObjectIdentifier: SmoothScrollEngine] = [:]
-
     /// Multiplier applied to `HUDLayout`'s base sizes/corner radii. Bootstrapped
     /// from `UserDefaults` in `setupHUD()` and kept live-updated by `setUIScale`.
     private var uiScale: CGFloat = 1.0
@@ -60,15 +56,6 @@ public class WindowManager: NSObject {
         NSSize(width: HUDLayout.fullSize.width * uiScale, height: HUDLayout.fullSize.height * uiScale)
     }
 
-    /// Cancels and drops every cached scroll engine. Called on each show so a
-    /// reused scroll view always gets a fresh engine: ordering the panel out can
-    /// leave an engine stuck mid-animation (dead display link, `isAnimating`
-    /// still true), which would block all mouse-wheel scrolling after reopening.
-    private func resetScrollEngines() {
-        for engine in scrollEngines.values { engine.cancel() }
-        scrollEngines.removeAll()
-    }
-    
     private override init() {
         super.init()
     }
@@ -166,10 +153,6 @@ public class WindowManager: NSObject {
             return WindowManager.shared.handleKeyDown(event)
         }
 
-        NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { @MainActor event in
-            return WindowManager.shared.handleScrollWheel(event)
-        }
-
         // Global mouse-down monitor: fires only for clicks destined for OTHER apps
         // (never for clicks on our own panel or status bar icon), so it reliably
         // dismisses the HUD when the user clicks outside the app. This is robust
@@ -258,36 +241,6 @@ public class WindowManager: NSObject {
         }
     }
 
-    /// Normalizes mouse-wheel scrolling. Trackpad (precise) and momentum events
-    /// pass straight through to native handling; discrete mouse-wheel notches are
-    /// consumed and replayed as a smooth, fixed-step scroll to avoid macOS's
-    /// speed-dependent acceleration that makes mouse scrolling feel jittery.
-    private func handleScrollWheel(_ event: NSEvent) -> NSEvent? {
-        guard let panel = hudPanel, panel.isVisible, panel.alphaValue > 0.1 else { return event }
-        guard event.window === panel, let contentView = panel.contentView else { return event }
-
-        // Leave trackpads and inertial momentum scrolling untouched.
-        if event.hasPreciseScrollingDeltas || event.momentumPhase != [] || event.phase != [] {
-            return event
-        }
-
-        let deltaY = event.scrollingDeltaY
-        guard deltaY != 0,
-              let scrollView = scrollViewUnderCursor(in: contentView, atWindowPoint: event.locationInWindow)
-        else { return event }
-
-        let engine = scrollEngines[ObjectIdentifier(scrollView)] ?? {
-            let new = SmoothScrollEngine(scrollView: scrollView)
-            scrollEngines[ObjectIdentifier(scrollView)] = new
-            return new
-        }()
-
-        // A positive scrollingDeltaY means "scroll up" (reveal earlier content),
-        // which for a flipped document view decreases the clip origin.
-        engine.addStep(direction: deltaY > 0 ? -1 : 1)
-        return nil
-    }
-
     @discardableResult
     private func handleKeyDown(_ event: NSEvent) -> NSEvent? {
         guard let panel = hudPanel, panel.isVisible == true else { return event }
@@ -371,8 +324,7 @@ public class WindowManager: NSObject {
 
     public func showHUD() {
         guard let panel = hudPanel else { return }
-        
-        resetScrollEngines()
+
         lastShowTime = Date()
         isAutoMinimizeLocked = true
         activeViewModel?.isMinimized = false
@@ -496,7 +448,6 @@ public class WindowManager: NSObject {
     public func expandHUD() {
         guard let panel = hudPanel, let vm = activeViewModel, vm.isMinimized else { return }
 
-        resetScrollEngines()
         lastShowTime = Date()
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.2

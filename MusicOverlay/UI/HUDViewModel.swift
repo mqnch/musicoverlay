@@ -40,10 +40,22 @@ public class HUDViewModel: ObservableObject {
 
     // MARK: - Slider state
 
-    @Published public var playbackPosition: Double = 0   // seconds
-    @Published public var trackDuration: Double = 1      // seconds (avoid /0)
-    @Published public var volume: Double = 50            // 0–100
-    @Published public var isSeeking: Bool = false        // true while user drags progress slider
+    /// Progress/volume state, split out of `HUDViewModel` into its own observable
+    /// object because the 0.5s now-playing poll rewrites `position` twice a
+    /// second. As `@Published` properties of the view model those writes
+    /// re-rendered every view observing it — including `RightPanel`, whose `List`
+    /// would be torn down and rebuilt mid-scroll twice per second. Only
+    /// `PlaybackControlsView` observes this, so the lists now stay untouched.
+    public final class PlaybackProgress: ObservableObject {
+        @Published public var position: Double = 0   // seconds
+        @Published public var duration: Double = 1   // seconds (avoid /0)
+        @Published public var volume: Double = 50    // 0–100
+        @Published public var isSeeking: Bool = false // true while user drags progress slider
+    }
+
+    /// Intentionally a plain `let`, not `@Published`: mutating the object's own
+    /// properties must not emit on the view model.
+    public let progress = PlaybackProgress()
 
     // MARK: - Internals
 
@@ -428,18 +440,18 @@ public class HUDViewModel: ObservableObject {
     // MARK: - Volume & seeking
 
     public func commitVolume() {
-        stateController.activeService?.setVolume(volume)
+        stateController.activeService?.setVolume(progress.volume)
     }
 
     /// Adjusts volume by `delta` (e.g. ±5) and commits immediately.
     public func adjustVolume(_ delta: Double) {
-        volume = max(0, min(100, volume + delta))
-        stateController.activeService?.setVolume(volume)
+        progress.volume = max(0, min(100, progress.volume + delta))
+        stateController.activeService?.setVolume(progress.volume)
     }
 
     public func commitSeek() {
-        stateController.activeService?.seekTo(playbackPosition)
-        isSeeking = false
+        stateController.activeService?.seekTo(progress.position)
+        progress.isSeeking = false
     }
 
     // MARK: - Keyboard navigation
@@ -504,13 +516,13 @@ public class HUDViewModel: ObservableObject {
             if repeatMode != track.repeatMode { repeatMode = track.repeatMode }
         }
         // Only update sliders if user isn't actively dragging
-        if !isSeeking, playbackPosition != track.position {
-            playbackPosition = track.position
+        if !progress.isSeeking, progress.position != track.position {
+            progress.position = track.position
         }
-        if trackDuration != track.duration && track.duration > 0 {
-            trackDuration = track.duration
+        if progress.duration != track.duration && track.duration > 0 {
+            progress.duration = track.duration
         }
-        if volume != track.volume { volume = track.volume }
+        if progress.volume != track.volume { progress.volume = track.volume }
     }
 
     /// Fire a refresh ~350ms after a track command so Spotify has time to switch.

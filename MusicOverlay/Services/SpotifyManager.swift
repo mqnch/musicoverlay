@@ -50,38 +50,49 @@ public class SpotifyManager: MediaServiceProtocol {
     /// only ever touched from one consistent thread.
     private let scriptQueue = DispatchQueue(label: "com.musicoverlay.spotify.applescript")
 
-    /// Compiled scripts cache. MUST only be accessed from `scriptQueue`.
-    private var compiledScripts: [String: NSAppleScript] = [:]
+    /// Compiled scripts cache. MUST only be accessed from `scriptQueue`, which
+    /// serializes every access — hence `nonisolated(unsafe)`.
+    nonisolated(unsafe) private var compiledScripts: [String: NSAppleScript] = [:]
 
-    private func isSpotifyRunning() -> Bool {
+    nonisolated private func isSpotifyRunning() -> Bool {
         return !NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").isEmpty
     }
 
+    /// Fire-and-forget script execution. Returns immediately; the Apple Event is
+    /// sent on `scriptQueue`. Used for playback commands, which have no return
+    /// value and must never block the caller.
+    nonisolated private func runScriptAsync(_ source: String, cache: Bool = true) {
+        scriptQueue.async { _ = self.executeScript(source, cache: cache) }
+    }
+
     /// Compiles (and caches) the script for `source`, then executes it. All work
-    /// runs synchronously on `scriptQueue`, so callers should invoke this from a
+    /// runs synchronously on `scriptQueue`, so callers MUST invoke this from a
     /// background thread to avoid blocking the main thread.
     @discardableResult
-    private func runScript(_ source: String, cache: Bool = true) -> String? {
-        return scriptQueue.sync {
-            guard isSpotifyRunning() else { return nil }
+    nonisolated private func runScript(_ source: String, cache: Bool = true) -> String? {
+        return scriptQueue.sync { executeScript(source, cache: cache) }
+    }
 
-            let script: NSAppleScript
-            if cache, let cached = compiledScripts[source] {
-                script = cached
-            } else {
-                guard let compiled = NSAppleScript(source: source) else { return nil }
-                if cache { compiledScripts[source] = compiled }
-                script = compiled
-            }
+    /// Must only ever be called on `scriptQueue`.
+    nonisolated private func executeScript(_ source: String, cache: Bool) -> String? {
+        guard isSpotifyRunning() else { return nil }
 
-            var error: NSDictionary?
-            let output = script.executeAndReturnError(&error)
-            if let error = error {
-                print("[SpotifyManager] AppleScript error: \(error)")
-                return nil
-            }
-            return output.stringValue
+        let script: NSAppleScript
+        if cache, let cached = compiledScripts[source] {
+            script = cached
+        } else {
+            guard let compiled = NSAppleScript(source: source) else { return nil }
+            if cache { compiledScripts[source] = compiled }
+            script = compiled
         }
+
+        var error: NSDictionary?
+        let output = script.executeAndReturnError(&error)
+        if let error = error {
+            print("[SpotifyManager] AppleScript error: \(error)")
+            return nil
+        }
+        return output.stringValue
     }
 
     // MARK: - Token helper
@@ -118,23 +129,23 @@ public class SpotifyManager: MediaServiceProtocol {
 
     // MARK: - MediaServiceProtocol — Basic playback
 
-    public func play() {
-        runScript(playSource)
+    nonisolated public func play() {
+        runScriptAsync(playSource)
     }
 
-    public func pause() {
-        runScript(pauseSource)
+    nonisolated public func pause() {
+        runScriptAsync(pauseSource)
     }
 
-    public func next() {
-        runScript(nextSource)
+    nonisolated public func next() {
+        runScriptAsync(nextSource)
     }
 
-    public func previous() {
-        runScript(prevSource)
+    nonisolated public func previous() {
+        runScriptAsync(prevSource)
     }
 
-    public func getCurrentTrack() -> TrackInfo? {
+    nonisolated public func getCurrentTrack() -> TrackInfo? {
         guard let result = runScript(currentTrackSource), !result.isEmpty else { return nil }
         let parts = result.components(separatedBy: "|||")
         guard parts.count == 11 else {
@@ -283,7 +294,7 @@ public class SpotifyManager: MediaServiceProtocol {
         return (transferRes as? HTTPURLResponse)?.statusCode == 204
     }
 
-    private func playURIViaAppleScript(uri: String, contextUri: String?) {
+    nonisolated private func playURIViaAppleScript(uri: String, contextUri: String?) {
         let script: String
         if let context = contextUri {
             // Using 'in context' ensures it plays within the playlist/album context
@@ -291,22 +302,29 @@ public class SpotifyManager: MediaServiceProtocol {
         } else {
             script = "tell application \"Spotify\" to play track \"\(uri)\""
         }
-        runScript(script, cache: false)
+        runScriptAsync(script, cache: false)
     }
 
-    public func setShuffle(_ on: Bool) {
-        runScript("tell application \"Spotify\" to set shuffling to \(on ? "true" : "false")", cache: false)
+    nonisolated public func setShuffle(_ on: Bool) {
+        runScriptAsync("tell application \"Spotify\" to set shuffling to \(on ? "true" : "false")", cache: false)
     }
 
-    /// Precise repeat state (off / context / track) as AppleScript only provides boolean.
-    private var lastSetRepeatMode: RepeatMode = .off
+    /// Precise repeat state (off / context / track) as AppleScript only provides
+    /// a boolean. Read from `getCurrentTrack()` on the script queue and written
+    /// by `setRepeat()` from the main actor, so access is lock-protected.
+    private let repeatModeLock = NSLock()
+    nonisolated(unsafe) private var _lastSetRepeatMode: RepeatMode = .off
+    nonisolated private var lastSetRepeatMode: RepeatMode {
+        get { repeatModeLock.withLock { _lastSetRepeatMode } }
+        set { repeatModeLock.withLock { _lastSetRepeatMode = newValue } }
+    }
 
-    public func setRepeat(_ mode: RepeatMode) {
+    nonisolated public func setRepeat(_ mode: RepeatMode) {
         lastSetRepeatMode = mode
         
         // AppleScript: boolean on/off
         let boolVal = mode.isActive ? "true" : "false"
-        runScript("tell application \"Spotify\" to set repeating to \(boolVal)", cache: false)
+        runScriptAsync("tell application \"Spotify\" to set repeating to \(boolVal)", cache: false)
 
         // Web API: precise 3-state (requires user-modify-playback-state scope)
         let state: String
@@ -316,7 +334,7 @@ public class SpotifyManager: MediaServiceProtocol {
         case .track:   state = "track"
         }
 
-        Task {
+        Task { @MainActor in
             await SpotifyAuthManager.shared.refreshTokenIfNeeded()
             guard let url = URL(string: "https://api.spotify.com/v1/me/player/repeat?state=\(state)"),
                   let request = authorizedRequest(url: url, method: "PUT") else { return }
@@ -333,13 +351,13 @@ public class SpotifyManager: MediaServiceProtocol {
 
     // MARK: - MediaServiceProtocol — Volume & seeking
 
-    public func setVolume(_ volume: Double) {
+    nonisolated public func setVolume(_ volume: Double) {
         let clamped = Int(max(0, min(100, volume)))
-        runScript("tell application \"Spotify\" to set sound volume to \(clamped)", cache: false)
+        runScriptAsync("tell application \"Spotify\" to set sound volume to \(clamped)", cache: false)
     }
 
-    public func seekTo(_ position: TimeInterval) {
-        runScript("tell application \"Spotify\" to set player position to \(position)", cache: false)
+    nonisolated public func seekTo(_ position: TimeInterval) {
+        runScriptAsync("tell application \"Spotify\" to set player position to \(position)", cache: false)
     }
 
     // MARK: - MediaServiceProtocol — Playlist fetching

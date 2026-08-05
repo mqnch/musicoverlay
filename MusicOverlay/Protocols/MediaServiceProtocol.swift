@@ -7,7 +7,11 @@ public protocol MediaServiceProtocol {
     func pause()
     func next()
     func previous()
-    func getCurrentTrack() -> TrackInfo?
+    /// Polled every 0.5s. `nonisolated` is load-bearing: this project builds with
+    /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so without it the blocking
+    /// Apple Events IPC inside implementations runs on the main thread even when
+    /// the caller wraps it in `Task.detached` — which froze the UI twice a second.
+    nonisolated func getCurrentTrack() -> TrackInfo?
 
     // MARK: - Playlist fetching
     func fetchPlaylists() async throws -> [Playlist]

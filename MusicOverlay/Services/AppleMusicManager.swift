@@ -33,59 +33,67 @@ public class AppleMusicManager: MediaServiceProtocol {
     /// only ever touched from one consistent thread.
     private let scriptQueue = DispatchQueue(label: "com.musicoverlay.applemusic.applescript")
     
-    /// Compiled scripts cache. MUST only be accessed from `scriptQueue`.
-    private var compiledScripts: [String: NSAppleScript] = [:]
+    /// Compiled scripts cache. MUST only be accessed from `scriptQueue`, which
+    /// serializes every access — hence `nonisolated(unsafe)`.
+    nonisolated(unsafe) private var compiledScripts: [String: NSAppleScript] = [:]
     
-    private func isMusicRunning() -> Bool {
+    nonisolated private func isMusicRunning() -> Bool {
         return !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").isEmpty
     }
     
-    /// Compiles (and caches) the script for `source`, then executes it. All work
-    /// runs synchronously on `scriptQueue`, so callers should invoke this from a
-    /// background thread to avoid blocking the main thread.
+    /// Fire-and-forget script execution. Returns immediately; the Apple Event is
+    /// sent on `scriptQueue`. Used for playback commands, which have no return
+    /// value and must never block the caller.
+    nonisolated private func runScriptAsync(_ source: String, cache: Bool = true) {
+        scriptQueue.async { _ = self.executeScript(source, cache: cache) }
+    }
+
     @discardableResult
-    private func runScript(_ source: String, cache: Bool = true) -> String? {
-        return scriptQueue.sync {
-            guard isMusicRunning() else { return nil }
-            
-            let script: NSAppleScript
-            if cache, let cached = compiledScripts[source] {
-                script = cached
-            } else {
-                guard let compiled = NSAppleScript(source: source) else { return nil }
-                if cache { compiledScripts[source] = compiled }
-                script = compiled
-            }
-            
-            var error: NSDictionary?
-            let output = script.executeAndReturnError(&error)
-            if let error = error {
-                print("AppleScript Error: \(error)")
-                return nil
-            }
-            return output.stringValue
+    nonisolated private func runScript(_ source: String, cache: Bool = true) -> String? {
+        return scriptQueue.sync { executeScript(source, cache: cache) }
+    }
+
+    /// Must only ever be called on `scriptQueue`.
+    nonisolated private func executeScript(_ source: String, cache: Bool) -> String? {
+        guard isMusicRunning() else { return nil }
+
+        let script: NSAppleScript
+        if cache, let cached = compiledScripts[source] {
+            script = cached
+        } else {
+            guard let compiled = NSAppleScript(source: source) else { return nil }
+            if cache { compiledScripts[source] = compiled }
+            script = compiled
         }
+
+        var error: NSDictionary?
+        let output = script.executeAndReturnError(&error)
+        if let error = error {
+            print("AppleScript Error: \(error)")
+            return nil
+        }
+        return output.stringValue
     }
     
     // MARK: - MediaServiceProtocol Implementation
     
-    public func play() {
-        runScript(playSource)
+    nonisolated public func play() {
+        runScriptAsync(playSource)
     }
     
-    public func pause() {
-        runScript(pauseSource)
+    nonisolated public func pause() {
+        runScriptAsync(pauseSource)
     }
     
-    public func next() {
-        runScript(nextSource)
+    nonisolated public func next() {
+        runScriptAsync(nextSource)
     }
     
-    public func previous() {
-        runScript(prevSource)
+    nonisolated public func previous() {
+        runScriptAsync(prevSource)
     }
     
-    public func getCurrentTrack() -> TrackInfo? {
+    nonisolated public func getCurrentTrack() -> TrackInfo? {
         guard let result = runScript(currentTrackSource), !result.isEmpty else {
             return nil
         }
@@ -166,30 +174,28 @@ public class AppleMusicManager: MediaServiceProtocol {
         return ([], false)
     }
 
-    public func setShuffle(_ on: Bool) {
+    nonisolated public func setShuffle(_ on: Bool) {
         let value = on ? "true" : "false"
-        _ = NSAppleScript(source: "tell application \"Music\" to set shuffle enabled to \(value)")?.executeAndReturnError(nil)
+        runScriptAsync("tell application \"Music\" to set shuffle enabled to \(value)", cache: false)
     }
 
-    public func setRepeat(_ mode: RepeatMode) {
+    nonisolated public func setRepeat(_ mode: RepeatMode) {
         let value: String
         switch mode {
         case .off:     value = "off"
         case .track:   value = "one"
         case .context: value = "all"
         }
-        _ = NSAppleScript(source: "tell application \"Music\" to set song repeat to \(value)")?.executeAndReturnError(nil)
+        runScriptAsync("tell application \"Music\" to set song repeat to \(value)", cache: false)
     }
 
-    public func setVolume(_ volume: Double) {
+    nonisolated public func setVolume(_ volume: Double) {
         let clamped = Int(max(0, min(100, volume)))
-        var error: NSDictionary?
-        NSAppleScript(source: "tell application \"Music\" to set sound volume to \(clamped)")?.executeAndReturnError(&error)
+        runScriptAsync("tell application \"Music\" to set sound volume to \(clamped)", cache: false)
     }
 
-    public func seekTo(_ position: TimeInterval) {
-        var error: NSDictionary?
-        NSAppleScript(source: "tell application \"Music\" to set player position to \(position)")?.executeAndReturnError(&error)
+    nonisolated public func seekTo(_ position: TimeInterval) {
+        runScriptAsync("tell application \"Music\" to set player position to \(position)", cache: false)
     }
 }
 

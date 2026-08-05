@@ -2,7 +2,7 @@ import Foundation
 
 /// A union type representing a mixed search result from Spotify —
 /// either a playable track or a browseable playlist.
-public enum SearchResult: Identifiable {
+nonisolated public enum SearchResult: Identifiable {
     case track(SpotifyTrack)
     case playlist(Playlist)
 
@@ -15,7 +15,7 @@ public enum SearchResult: Identifiable {
 }
 
 /// Repeat modes supported by the playback layer.
-public enum RepeatMode: CaseIterable {
+nonisolated public enum RepeatMode: CaseIterable {
     case off
     case context   // repeat the whole playlist / album
     case track     // repeat the current track

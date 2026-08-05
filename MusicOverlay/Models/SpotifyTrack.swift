@@ -1,6 +1,6 @@
 import Foundation
 
-public struct SpotifyTrack: Identifiable, Equatable {
+nonisolated public struct SpotifyTrack: Identifiable, Equatable {
     public let id: String
     public let title: String
     public let artist: String
